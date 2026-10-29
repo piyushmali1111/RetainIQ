@@ -4,6 +4,17 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+class ManagerSession(Base):
+    __tablename__ = "manager_sessions"
+    token_hash = Column(String, primary_key=True)
+    expires_at = Column(DateTime, nullable=False)
+
+class AgentPreference(Base):
+    __tablename__ = "agent_preferences"
+    id = Column(Integer, primary_key=True, default=1)
+    ticket_monitoring = Column(Boolean, default=True, nullable=False)
+    automated_offers = Column(Boolean, default=True, nullable=False)
+
 class SystemSetting(Base):
     __tablename__ = "settings"
 
@@ -30,9 +41,9 @@ class Customer(Base):
     churn_risk_score = Column(Float, default=0.0, index=True)
     model_version = Column(String, default="v2-calibrated-xgb", nullable=True)
     scored_at = Column(DateTime, default=datetime.utcnow, nullable=True)
-    baseline_score = Column(Integer, nullable=True)
+    baseline_score = Column(Float, nullable=True)
     urgency_score = Column(Integer, nullable=True)
-    fused_score = Column(Integer, nullable=True)
+    fused_score = Column(Float, nullable=True)
     churn_status = Column(String, default="Safe", index=True) # Safe, Watching, High Risk
 
     tickets = relationship("Ticket", back_populates="customer", cascade="all, delete-orphan")
@@ -47,8 +58,8 @@ class Ticket(Base):
     sentiment_label = Column(String, nullable=False) # Angry, Neutral, Happy
     sentiment_score = Column(Integer, default=50) # 0-100 (urgency)
     urgency_score = Column(Integer, nullable=True)
-    baseline_score = Column(Integer, nullable=True)
-    fused_score = Column(Integer, nullable=True)
+    baseline_score = Column(Float, nullable=True)
+    fused_score = Column(Float, nullable=True)
     agent_reply = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
@@ -64,9 +75,9 @@ class Offer(Base):
     drafted_message = Column(Text, nullable=False)
     discount_percent = Column(Integer, nullable=False)
     reasoning = Column(Text, nullable=False)
-    baseline_score = Column(Integer, nullable=True)
+    baseline_score = Column(Float, nullable=True)
     urgency_score = Column(Integer, nullable=True)
-    fused_score = Column(Integer, nullable=True)
+    fused_score = Column(Float, nullable=True)
     status = Column(String, default="Pending", index=True) # Pending, Approved, Rejected, Edited
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     decided_at = Column(DateTime, nullable=True)

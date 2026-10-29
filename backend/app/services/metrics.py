@@ -4,14 +4,14 @@ Ensures a single source of truth across all endpoints, agents, and scheduler.
 
 Definitions:
 - retention_rate_30d: Retained customers divided by (retained + churned) over the last 30 days.
-  Retained = customer who placed an order (last_order_date within window) or accepted an offer.
+  Retained = customer who placed an order (last_order_date within window) or has a confirmed positive retention outcome.
   Churned = high-risk customer whose activity ceased in the period.
 - weekly_trend: 8-week cohorts (W1 to W8) computed using the identical retention rate formulation.
 """
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
-from app.db.models import Customer, Offer
+from app.db.models import Customer, Offer, Outcome
 from app.services.settings_service import get_system_settings
 
 def get_status_label(score: int, risk_threshold: int) -> str:
@@ -37,12 +37,12 @@ def get_high_risk_count(db: Session, risk_threshold: int = None) -> int:
     return db.query(Customer).filter(Customer.churn_risk_score >= risk_threshold).count()
 
 def get_pending_offers_count(db: Session) -> int:
-    return db.query(Offer).filter(Offer.status == "Pending").count()
+    return db.query(Offer).filter(Offer.status.in_(["Pending", "Edited"])).count()
 
 def compute_window_counts(db: Session, days_start: int, days_end: int, risk_threshold: int) -> Dict[str, Any]:
     """
     Computes retained and churned customers in a window [today - days_start, today - days_end].
-    Retained: Customer placed an order or accepted a retention offer in the window.
+    Retained: Customer placed an order or has a confirmed positive retention outcome in the window.
     Churned: Customer whose last order is older than the window start and has churn_risk_score >= risk_threshold.
     """
     today = datetime.utcnow().date()
@@ -51,26 +51,21 @@ def compute_window_counts(db: Session, days_start: int, days_end: int, risk_thre
     start_str = start_dt.isoformat()
     end_str = end_dt.isoformat()
 
-    # Retained in window: customer placed an order between start_date (older) and end_date (newer)
-    retained_count = db.query(Customer).filter(
-        Customer.last_order_date >= start_str,
-        Customer.last_order_date <= end_str
-    ).count()
-
-    # Accepted offers in window
-    accepted_offers = db.query(Offer).filter(
-        Offer.status == "Approved",
-        Offer.decided_at >= datetime.combine(start_dt, datetime.min.time()),
-        Offer.decided_at <= datetime.combine(end_dt, datetime.max.time())
-    ).count()
-
-    retained = retained_count + accepted_offers
+    active_ids = {row[0] for row in db.query(Customer.id).filter(
+        Customer.last_order_date >= start_str, Customer.last_order_date <= end_str).all()}
+    confirmed_ids = {row[0] for row in db.query(Offer.customer_id).join(Outcome).filter(
+        Outcome.customer_stayed.is_(True),
+        Outcome.checked_at >= datetime.combine(start_dt, datetime.min.time()),
+        Outcome.checked_at <= datetime.combine(end_dt, datetime.max.time())).all()}
+    retained_ids = active_ids | confirmed_ids
+    retained = len(retained_ids)
 
     # Churned in window: Inactive before window start, high risk score, signed up on or before window end
     churned = db.query(Customer).filter(
         Customer.churn_risk_score >= risk_threshold,
         Customer.last_order_date < start_str,
-        Customer.signup_date <= end_str
+        Customer.signup_date <= end_str,
+        ~Customer.id.in_(retained_ids)
     ).count()
 
     total = retained + churned
@@ -146,9 +141,9 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
 
     return {
         "total_customers": total,
-        "high_risk_today": 14,
+        "high_risk_today": high_risk,
         "high_risk_total": high_risk,
-        "high_risk_new_today": 14,
+        "high_risk_new_today": None,
         "retention_rate_30d": retention_info["retention_rate_30d"],
         "retention_delta_vs_last_month": retention_info["retention_delta_vs_last_month"],
         "pending_offers_count": pending,

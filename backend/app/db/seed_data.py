@@ -84,6 +84,24 @@ def seed_db(reseed: bool = False):
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
+    # Repair historical synthetic seed timestamps only, never incoming tickets.
+    now_utc = datetime.utcnow()
+    repaired = 0
+    rows = db.query(Ticket, Customer.last_order_date).join(Customer).filter(
+        Ticket.id.like("TCK-CUST-%")).all()
+    for ticket, order_date in rows:
+        fixed = min(ticket.created_at, now_utc - timedelta(seconds=1))
+        if any(word in ticket.message.lower() for word in ("damaged", "crushed", "missing", "wrong")):
+            start = datetime.fromisoformat(order_date[:10])
+            end = start + timedelta(days=14, hours=23, minutes=59)
+            fixed = min(max(fixed, start), end, now_utc - timedelta(seconds=1))
+        if fixed != ticket.created_at:
+            ticket.created_at = fixed
+            repaired += 1
+    if repaired:
+        db.commit()
+        print(f"[SEED] Corrected {repaired} sample ticket timestamps.")
+
     if not reseed and db.query(Customer).count() >= 4850:
         print(f"[+] DB already contains seeded data ({db.query(Customer).count()} customers).")
         db.close()
@@ -116,7 +134,7 @@ def seed_db(reseed: bool = False):
         db.commit()
 
     threshold = setting.risk_threshold
-    today = datetime.now().date()
+    today = datetime.utcnow().date()
     rng = random.Random(42)
     fake_us = Faker("en_US")
     fake_in = Faker("en_IN")
@@ -315,7 +333,7 @@ def seed_db(reseed: bool = False):
                         valid_t_date = last_order_d + timedelta(days=delta_valid)
                         if valid_t_date > today:
                             valid_t_date = today
-                        t_dt = datetime.combine(valid_t_date, datetime.min.time()) + timedelta(hours=14)
+                        t_dt = min(datetime.combine(valid_t_date, datetime.min.time()) + timedelta(hours=14), datetime.utcnow() - timedelta(minutes=1))
                     s_res = analyze_sentiment(msg)
                     t_fused = round(0.7 * oof_score + 0.3 * s_res["urgency_score"], 1)
 

@@ -22,6 +22,20 @@ from app.ml.sentiment_model import get_analyzer
 client = TestClient(app)
 
 class TestChurnGuardAIConsistency(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        client.__enter__()
+        from app.config import settings
+        response = client.post("/api/auth/login", json={
+            "email": settings.MANAGER_EMAIL, "password": settings.MANAGER_PASSWORD})
+        assert response.status_code == 200
+        client.put("/api/settings", json={"risk_threshold": 60,
+            "max_discount_percent": 25, "scan_frequency": "daily"})
+
+    @classmethod
+    def tearDownClass(cls):
+        client.__exit__(None, None, None)
+
     def setUp(self):
         self.db = SessionLocal()
 
@@ -31,7 +45,7 @@ class TestChurnGuardAIConsistency(unittest.TestCase):
     def test_01_no_retainiq_matches(self):
         """1. grep -ri retainiq . returns 0 matches across all source code."""
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-        skip_dirs = {"node_modules", ".next", ".git", "__pycache__", ".venv"}
+        skip_dirs = {"node_modules", ".next", ".git", "__pycache__", ".venv", ".pytest_cache", "artifacts"}
         skip_files = {"test_consistency.py"}
         matches = []
         target = "retain" + "iq"

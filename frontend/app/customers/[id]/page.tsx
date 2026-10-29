@@ -1,319 +1,308 @@
 "use client";
-
-import { useEffect, useState, use } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { CustomerDetail } from "../../../lib/types";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Plus, Mail, CalendarDays, ArrowRight } from "lucide-react";
 import { api } from "../../../lib/api";
-import { formatCurrency, formatRecency, getInitials } from "../../../lib/formatters";
+import type { CustomerDetail } from "../../../lib/types";
+import { Avatar, Badge, Notice, Loading, Empty } from "../../../components/ui";
 import { ShapExplainerBar } from "../../../components/ShapExplainerBar";
-import {
-  ArrowLeft,
-  Calendar,
-  CreditCard,
-  ShoppingBag,
-  Ticket as TicketIcon,
-  Gift,
-  AlertTriangle,
-  UserCheck,
-  ShieldAlert,
-} from "lucide-react";
-
-export default function CustomerDetailPage({
+import { formatCurrency, formatDate } from "../../../lib/formatters";
+export default function CustomerPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = use(params);
-  const [customer, setCustomer] = useState<CustomerDetail | null>(null);
-  const [threshold, setThreshold] = useState<number>(60);
-  const [loading, setLoading] = useState(true);
-
+  const { id } = use(params),
+    router = useRouter();
+  const [c, setC] = useState<CustomerDetail | null>(null),
+    [error, setError] = useState(""),
+    [tab, setTab] = useState("Overview"),
+    [busy, setBusy] = useState(false);
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [custData, settingsData] = await Promise.all([
-          api.getCustomerById(resolvedParams.id),
-          api.getSettings().catch(() => null),
-        ]);
-        setCustomer(custData);
-        if (settingsData?.risk_threshold) {
-          setThreshold(settingsData.risk_threshold);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, [resolvedParams.id]);
-
-  if (loading) {
-    return (
-      <div className="py-16 text-center text-xs text-ink-muted font-mono">
-        Loading customer case file #{resolvedParams.id}...
-      </div>
-    );
-  }
-
-  if (!customer) {
-    return (
-      <div className="py-16 text-center space-y-4">
-        <p className="text-sm text-ink-muted">Customer record #{resolvedParams.id} not found.</p>
-        <Link href="/customers" className="text-xs font-mono text-ink underline">
-          Return to Customer Directory
+    api
+      .getCustomerById(id)
+      .then(setC)
+      .catch((e) => setError(e.message));
+  }, [id]);
+  if (!c)
+    return error ? (
+      <>
+        <Notice message={error} error />
+        <Link className="text-link" href="/customers">
+          Back to customers
         </Link>
-      </div>
+      </>
+    ) : (
+      <Loading />
     );
-  }
-
-  const getScoreColor = (score: number) => {
-    if (score >= threshold) return { text: "text-rose", border: "border-rose", bg: "bg-rose/10" };
-    if (score >= threshold - 20) return { text: "text-amber", border: "border-amber", bg: "bg-amber/10" };
-    return { text: "text-teal", border: "border-teal", bg: "bg-teal/10" };
-  };
-
-  const scoreTheme = getScoreColor(customer.churn_risk_score);
-  const initials = getInitials(customer.name);
-
+  const color =
+    c.churn_status === "High Risk"
+      ? "#f5677b"
+      : c.churn_status === "Safe"
+        ? "#19b695"
+        : "#edb34c";
+  const score = c.fused_score ?? c.churn_risk_score;
   return (
-    <div className="space-y-8">
-      {/* Back Button & Header */}
-      <div>
-        <Link
-          href="/customers"
-          className="inline-flex items-center gap-1.5 text-xs font-mono text-ink-muted hover:text-ink mb-4 transition-colors"
+    <>
+      <Link href="/customers" className="text-link">
+        <ArrowLeft size={13} />
+        Back to Customers
+      </Link>
+      <div className="customer-heading">
+        <Avatar name={c.name} large />
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <h1>{c.name}</h1>
+            <span className="badge neutral">{c.id}</span>
+          </div>
+          <div style={{ display: "flex", gap: 7, marginTop: 9 }}>
+            <Badge>{c.churn_status}</Badge>
+            <Badge tone="red">Churn risk: {c.churn_risk_score}%</Badge>
+          </div>
+          <div className="customer-meta">
+            <span style={{ display: "flex", gap: 6 }}>
+              <Mail size={12} />
+              {c.email}
+            </span>
+            <span style={{ display: "flex", gap: 6 }}>
+              <CalendarDays size={12} />
+              Member since {formatDate(c.signup_date)}
+            </span>
+          </div>
+        </div>
+        <button
+          className="button primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              const o = await api.createOffer(c.id);
+              router.push("/approvals?offer=" + o.id);
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
         >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Customers Table
-        </Link>
-
-        {/* Profile Card Header */}
-        <div className="case-border bg-white rounded-sm p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-paper case-border flex items-center justify-center font-display font-bold text-base text-ink shrink-0">
-              {initials}
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-3">
-                <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink">{customer.name}</h1>
-                <span
-                  className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                    customer.churn_status === "High Risk"
-                      ? "bg-rose/20 text-rose"
-                      : customer.churn_status === "Watching"
-                      ? "bg-amber/20 text-amber"
-                      : "bg-teal/20 text-teal"
-                  }`}
-                >
-                  {customer.churn_status}
-                </span>
-              </div>
-              <p className="text-xs text-ink-muted font-mono">
-                ID: <span className="font-semibold text-ink">{customer.id}</span> • {customer.email}
-              </p>
-            </div>
-          </div>
-
-          {/* Core Customer Metrics Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs case-border p-4 bg-paper/60 rounded-sm">
-            <div>
-              <span className="text-ink-muted block text-[10px] uppercase font-mono">Lifetime Value</span>
-              <span className="font-bold text-ink text-sm font-mono">{formatCurrency(customer.total_spent)}</span>
-            </div>
-            <div>
-              <span className="text-ink-muted block text-[10px] uppercase font-mono">Orders Count</span>
-              <span className="font-bold text-ink text-sm font-mono">{customer.order_count} purchases</span>
-            </div>
-            <div>
-              <span className="text-ink-muted block text-[10px] uppercase font-mono">Last Order Date</span>
-              <span className="font-bold text-ink text-sm font-mono">
-                {customer.last_order_date} ({formatRecency(customer.last_order_date)})
-              </span>
-            </div>
-          </div>
+          <Plus size={15} />
+          {busy ? "Creating offer…" : "Create Offer"}
+        </button>
+      </div>
+      <Notice message={error} error />
+      <div className="detail-tabs">
+        <div className="tabs" role="tablist" aria-label="Customer details">
+          {[
+            "Overview",
+            "Risk Analysis",
+            "Purchase Summary",
+            "Support Tickets",
+            "Retention Offers",
+          ].map((t) => (
+            <button
+              role="tab"
+              aria-selected={t === tab}
+              className={t === tab ? "active" : ""}
+              onClick={() => setTab(t)}
+              key={t}
+            >
+              {t}
+            </button>
+          ))}
         </div>
       </div>
-
-      {/* Main Grid: Score & SHAP Breakdown (Left 7 cols) & History Timeline (Right 5 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Risk Score Gauge + SHAP Factors */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Churn Risk Score Box */}
-          <div className="case-border bg-white rounded-sm p-6">
-            <div className="flex items-center justify-between pb-4 case-border-b mb-6">
-              <h2 className="font-display font-bold text-lg tracking-tight text-ink">
-                AI Churn Risk Score Assessment
-              </h2>
-              <span className="text-xs font-mono text-ink-muted">
-                XGBoost + SHAP Model
-              </span>
+      {(tab === "Overview" ||
+        tab === "Risk Analysis" ||
+        tab === "Purchase Summary") && (
+        <div className="detail-grid">
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Customer Overview</h2>
             </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-6">
-              {/* Mono Score Ring Gauge */}
-              <div
-                className={`w-32 h-32 rounded-full border-4 ${scoreTheme.border} ${scoreTheme.bg} flex flex-col items-center justify-center shrink-0 shadow-none`}
-              >
-                <span className={`text-4xl font-mono font-bold ${scoreTheme.text}`}>
-                  {customer.churn_risk_score}
-                </span>
-                <span className="text-[10px] font-mono text-ink-muted uppercase tracking-wider">
-                  Out of 100
-                </span>
-              </div>
-
-              <div className="space-y-2 text-xs leading-relaxed text-ink-muted flex-1">
-                <p className="font-semibold text-ink">
-                  Risk Level: {customer.churn_status}
-                </p>
-                <p>
-                  Scores above {threshold} auto-trigger the Retention Agent to draft customized discount offers for human approval.
-                </p>
-
-                {/* Section 5: Fused Risk Score Callout */}
-                {customer.fused_score !== undefined && customer.urgency_score !== null && customer.urgency_score !== undefined && (
-                  <div className="p-2 case-border rounded bg-purple-50/80 text-purple-900 font-mono text-xs font-semibold">
-                    Latest fused score: {customer.fused_score} (baseline {customer.baseline_score ?? customer.churn_risk_score}, urgency {customer.urgency_score})
+            <div className="panel-body" style={{ paddingTop: 0 }}>
+              <dl className="stats-mini">
+                {[
+                  ["Total Spending", formatCurrency(c.total_spent)],
+                  ["Total Orders", c.order_count],
+                  [
+                    "Avg. Order Value",
+                    formatCurrency(
+                      c.order_count ? c.total_spent / c.order_count : 0,
+                    ),
+                  ],
+                  ["Last Order", formatDate(c.last_order_date)],
+                  ["Satisfaction", c.satisfaction_score + " / 5"],
+                  ["Days Inactive", c.days_inactive ?? "—"],
+                ].map(([label, v]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{v}</dd>
                   </div>
-                )}
-
-                <div className="pt-1 flex items-center gap-4 text-[11px] font-mono">
-                  <span>Satisfaction: {customer.satisfaction_score}/5.0</span>
-                  <span>Complaints: {customer.complaint_count}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* "Why this score" SHAP Breakdown */}
-          <div className="case-border bg-white rounded-sm p-6">
-            <div className="pb-4 case-border-b mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="font-display font-bold text-lg tracking-tight text-ink">
-                  Why is this customer at risk?
-                </h3>
-                <p className="text-xs text-ink-muted">
-                  SHAP feature attribution points driving the model&apos;s score output
+                ))}
+              </dl>
+              {tab === "Purchase Summary" && (
+                <p className="muted" style={{ marginTop: 25, fontSize: 11 }}>
+                  The connected dataset contains purchase totals and the most
+                  recent order date. Individual order records are not available.
                 </p>
-              </div>
-              <span className="text-xs font-mono text-ink-muted bg-paper px-2 py-1 case-border">
-                Explainable AI
-              </span>
+              )}
             </div>
-
-            <ShapExplainerBar
-              factors={customer.shap_factors}
-              baseScore={customer.base_score}
-              score={customer.churn_risk_score}
-            />
-          </div>
-        </div>
-
-        {/* Right Column: Ticket History & Offer Timeline */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Retention Offer Status */}
-          <div className="case-border bg-white rounded-sm p-6">
-            <div className="flex items-center justify-between pb-3 mb-4 case-border-b">
-              <div className="flex items-center gap-2">
-                <Gift className="w-4 h-4 text-amber" />
-                <h3 className="font-display font-bold text-base tracking-tight text-ink">
-                  Retention Offers History
-                </h3>
+          </section>
+          {tab !== "Purchase Summary" && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Churn Risk Analysis</h2>
+                <span className="badge neutral">Explainable AI</span>
               </div>
-              <span className="text-xs font-mono text-ink-muted">
-                {customer.offers.length} Offer(s)
-              </span>
-            </div>
-
-            {customer.offers.length === 0 ? (
-              <p className="text-xs text-ink-muted italic py-4">
-                No retention offers drafted for this customer yet.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {customer.offers.map((offer) => (
+              <div className="panel-body" style={{ paddingTop: 5 }}>
+                <div className="risk-content">
                   <div
-                    key={offer.id}
-                    className="p-3.5 case-border bg-paper/60 rounded-sm space-y-2 text-xs"
+                    className="risk-ring"
+                    style={{
+                      background:
+                        "conic-gradient(" +
+                        color +
+                        " " +
+                        Math.min(100, Math.max(0, score)) +
+                        "%, #eff3fa 0)",
+                    }}
                   >
-                    <div className="flex items-center justify-between font-mono">
-                      <span className="font-bold text-ink">{offer.discount_percent}% Discount</span>
-                      <span
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded ${
-                          offer.status === "Approved"
-                            ? "bg-teal/20 text-teal"
-                            : offer.status === "Pending"
-                            ? "bg-amber/20 text-amber"
-                            : "bg-rose/20 text-rose"
-                        }`}
-                      >
-                        {offer.status}
-                      </span>
+                    <div>
+                      <strong>{score}%</strong>
+                      <small>
+                        {c.fused_score != null ? "Fused risk" : "Baseline risk"}
+                      </small>
                     </div>
-                    {offer.fused_score !== undefined && (
-                      <p className="text-[11px] font-mono text-purple-800 font-semibold">
-                        Baseline {offer.baseline_score ?? "N/A"} · Urgency {offer.urgency_score ?? "N/A"} · Fused {offer.fused_score}
-                      </p>
-                    )}
-                    <p className="text-ink-muted leading-relaxed font-sans">
-                      &quot;{offer.drafted_message}&quot;
-                    </p>
-                    <p className="text-[11px] font-mono text-ink-muted/80">
-                      Reasoning: {offer.reasoning}
-                    </p>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Ticket History Timeline */}
-          <div className="case-border bg-white rounded-sm p-6">
-            <div className="flex items-center justify-between pb-3 mb-4 case-border-b">
-              <div className="flex items-center gap-2">
-                <TicketIcon className="w-4 h-4 text-ink" />
-                <h3 className="font-display font-bold text-base tracking-tight text-ink">
-                  Support Ticket Timeline
-                </h3>
-              </div>
-              <span className="text-xs font-mono text-ink-muted">
-                {customer.ticket_history.length} Ticket(s)
-              </span>
-            </div>
-
-            {customer.ticket_history.length === 0 ? (
-              <p className="text-xs text-ink-muted italic py-4">
-                No support tickets filed by this customer.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {customer.ticket_history.map((ticket) => (
-                  <div key={ticket.id} className="case-border p-3 rounded-sm bg-paper/30 space-y-2 text-xs">
-                    <div className="flex items-center justify-between font-mono text-[11px]">
-                      <span className="font-bold text-ink">#{ticket.id}</span>
-                      <span className="text-ink-muted">
-                        {new Date(ticket.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    {ticket.fused_score !== undefined && (
-                      <div className="text-[11px] font-mono text-purple-800">
-                        Baseline {ticket.baseline_score ?? "N/A"} · Urgency {ticket.urgency_score ?? "N/A"} · Fused {ticket.fused_score}
-                      </div>
-                    )}
-                    <p className="text-ink-muted font-sans">&quot;{ticket.message}&quot;</p>
-                    {ticket.agent_reply && (
-                      <div className="pt-2 case-border-t text-[11px] text-ink font-sans">
-                        <span className="font-bold font-mono">Agent Reply:</span> {ticket.agent_reply}
-                      </div>
-                    )}
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ fontSize: 11, marginBottom: 17 }}>
+                      Top Risk Factors (SHAP)
+                    </h3>
+                    <ShapExplainerBar factors={c.shap_factors} />
                   </div>
-                ))}
+                </div>
+                {tab === "Risk Analysis" && (
+                  <p className="muted" style={{ fontSize: 11, marginTop: 24 }}>
+                    Behavioral baseline:{" "}
+                    {c.baseline_score ?? c.churn_risk_score}%. Latest support
+                    urgency: {c.urgency_score ?? "Not available"}. SHAP factors
+                    explain the behavioral score; positive contributions
+                    increase risk.
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+            </section>
+          )}
         </div>
-      </div>
-    </div>
+      )}
+      {(tab === "Overview" ||
+        tab === "Support Tickets" ||
+        tab === "Retention Offers") && (
+        <div className={tab === "Overview" ? "two-col section-gap" : ""}>
+          {tab !== "Retention Offers" && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>
+                  {tab === "Overview"
+                    ? "Recent Support Tickets"
+                    : "Support Tickets"}
+                </h2>
+                {tab === "Overview" && (
+                  <button
+                    className="text-button text-link"
+                    onClick={() => setTab("Support Tickets")}
+                  >
+                    View all
+                  </button>
+                )}
+              </div>
+              {c.ticket_history.length ? (
+                c.ticket_history
+                  .slice(0, tab === "Overview" ? 2 : undefined)
+                  .map((t) => (
+                    <div className="history-row" key={t.id}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                        }}
+                      >
+                        <Badge>{t.sentiment_label}</Badge>
+                        <small>{formatDate(t.created_at)}</small>
+                      </div>
+                      <p>{t.message}</p>
+                      {tab === "Support Tickets" && t.agent_reply && (
+                        <div className="conversation-bubble reply">
+                          <strong>AI support response</strong>
+                          <p>{t.agent_reply}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))
+              ) : (
+                <Empty
+                  title="No support tickets"
+                  description="No conversations recorded for this customer."
+                />
+              )}
+            </section>
+          )}
+          {tab !== "Support Tickets" && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Retention Offers</h2>
+                {tab === "Overview" && (
+                  <button
+                    className="text-button text-link"
+                    onClick={() => setTab("Retention Offers")}
+                  >
+                    View all
+                  </button>
+                )}
+              </div>
+              {c.offers.length ? (
+                c.offers
+                  .slice(0, tab === "Overview" ? 2 : undefined)
+                  .map((o) => (
+                    <div className="history-row" key={o.id}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <strong>{o.discount_percent}% Discount Offer</strong>
+                        <Badge>{o.status}</Badge>
+                      </div>
+                      <p>{o.reasoning}</p>
+                      <Link
+                        className="text-link"
+                        href={"/approvals?offer=" + o.id}
+                      >
+                        View offer <ArrowRight size={12} />
+                      </Link>
+                    </div>
+                  ))
+              ) : (
+                <Empty
+                  title="No offers yet"
+                  description="Create a personalized offer when this customer needs one."
+                />
+              )}
+            </section>
+          )}
+        </div>
+      )}
+    </>
   );
 }

@@ -1,5 +1,5 @@
-from typing import List, Optional, Any
-from pydantic import BaseModel
+from typing import List, Optional, Any, Literal
+from pydantic import BaseModel, Field
 
 class WeeklyTrendPoint(BaseModel):
     week: str
@@ -32,7 +32,7 @@ class CustomerSummaryResponse(BaseModel):
     name: str
     email: str
     churn_risk_score: float
-    baseline_score: Optional[int] = None
+    baseline_score: Optional[float] = None
     urgency_score: Optional[int] = None
     fused_score: Optional[float] = None
     churn_status: str
@@ -55,7 +55,7 @@ class TicketResponse(BaseModel):
     sentiment_label: str
     sentiment_score: int
     urgency_score: Optional[int] = None
-    baseline_score: Optional[int] = None
+    baseline_score: Optional[float] = None
     fused_score: Optional[float] = None
     agent_reply: Optional[str] = None
     created_at: str
@@ -68,7 +68,7 @@ class OfferResponse(BaseModel):
     drafted_message: str
     discount_percent: int
     reasoning: str
-    baseline_score: Optional[int] = None
+    baseline_score: Optional[float] = None
     urgency_score: Optional[int] = None
     fused_score: Optional[float] = None
     status: str
@@ -86,11 +86,11 @@ class CustomerDetailResponse(CustomerSummaryResponse):
 
 class TicketCreateRequest(BaseModel):
     customer_id: str
-    message: str
+    message: str = Field(min_length=3, max_length=5000, pattern=r"\S")
 
 class OfferPatchRequest(BaseModel):
-    drafted_message: Optional[str] = None
-    discount_percent: Optional[int] = None
+    drafted_message: Optional[str] = Field(None, min_length=3, max_length=5000, pattern=r"\S")
+    discount_percent: Optional[int] = Field(None, ge=0, le=100)
 
 class ScanRunResponse(BaseModel):
     scanned_customers: Optional[int] = None
@@ -103,8 +103,14 @@ class SettingsResponse(BaseModel):
     max_discount_percent: int
     scan_frequency: str
     fusion_alpha: float = 0.7
+    ticket_monitoring: bool = True
+    automated_offers: bool = True
+    email_configured: bool = False
+    next_scan: Optional[str] = None
 
 class SettingsUpdateRequest(BaseModel):
-    risk_threshold: Optional[int] = None
-    max_discount_percent: Optional[int] = None
-    scan_frequency: Optional[str] = None
+    risk_threshold: Optional[int] = Field(None, ge=20, le=95)
+    max_discount_percent: Optional[int] = Field(None, ge=0, le=50)
+    scan_frequency: Optional[Literal["daily", "weekly", "disabled"]] = None
+    ticket_monitoring: Optional[bool] = None
+    automated_offers: Optional[bool] = None

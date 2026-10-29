@@ -11,6 +11,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/lib/
+!frontend/lib/**
 lib64/
 parts/
 sdist/
@@ -53,3 +55,8 @@ backend/.env
 Thumbs.db
 .idea/
 .vscode/
+
+# Local runtime and verification output
+backend/local.db
+backend/test-*.db
+artifacts/

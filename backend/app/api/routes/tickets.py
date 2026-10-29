@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import Customer, Ticket, Offer
@@ -10,6 +10,7 @@ from app.ml.sentiment_model import analyze_sentiment
 from app.ml.shap_explainer import explain_churn_risk
 from app.agents.orchestrator import run_agent_pipeline
 from app.services.settings_service import get_system_settings
+from app.services.preferences import get_preferences
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ def compute_days_inactive(last_order_str: str) -> int:
         return 30
 
 @router.get("", response_model=List[TicketResponse])
-def list_tickets(limit: int = 100, db: Session = Depends(get_db)):
+def list_tickets(limit: int = Query(100, ge=1, le=10000), db: Session = Depends(get_db)):
     results = (
         db.query(Ticket, Customer.name)
         .outerjoin(Customer, Ticket.customer_id == Customer.id)
@@ -44,7 +45,7 @@ def list_tickets(limit: int = 100, db: Session = Depends(get_db)):
             "message": t.message,
             "sentiment_label": t.sentiment_label,
             "sentiment_score": t.sentiment_score,
-            "urgency_score": t.urgency_score or t.sentiment_score,
+            "urgency_score": t.urgency_score if t.urgency_score is not None else t.sentiment_score,
             "baseline_score": t.baseline_score,
             "fused_score": t.fused_score,
             "agent_reply": t.agent_reply,
@@ -58,6 +59,9 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
     if not cust:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    prefs = get_preferences(db)
+    if not prefs.ticket_monitoring:
+        raise HTTPException(409, "Ticket monitoring is paused. Enable it in Settings before simulating a ticket.")
     settings_obj = get_system_settings(db)
     threshold = settings_obj.risk_threshold
     max_discount = settings_obj.max_discount_percent
@@ -126,7 +130,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
 
     # 5. Save pending offer if created by agent pipeline
     created_offer = None
-    if result.get("verified_offer"):
+    if result.get("verified_offer") and prefs.automated_offers:
         offer_draft = result["verified_offer"]
         new_offer = Offer(
             id=offer_id,

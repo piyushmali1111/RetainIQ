@@ -1,63 +1,80 @@
 "use client";
-
-import { useAgentActivityStore } from "../lib/store";
-import { useAgentActivityStream } from "../lib/hooks/useAgentActivityStream";
-import { Bot, CheckCircle2, AlertTriangle, Info, Tag } from "lucide-react";
-
+import { useEffect, useState } from "react";
+import { Bot, ShieldCheck, TriangleAlert, RefreshCw } from "lucide-react";
+import { api } from "../lib/api";
+import type { Activity } from "../lib/types";
+import { Empty } from "./ui";
 export function AgentActivityWidget() {
-  // Activate stream hook
-  useAgentActivityStream();
-  const activities = useAgentActivityStore((state) => state.activities);
-
+  const [items, setItems] = useState<Activity[]>([]),
+    [connected, setConnected] = useState(false);
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const data = await api.getActivity();
+        if (active) {
+          setItems(data);
+          setConnected(true);
+        }
+      } catch {
+        if (active) setConnected(false);
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 4000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
   return (
-    <div className="case-border bg-white rounded-sm p-4 flex flex-col h-full">
-      <div className="flex items-center justify-between pb-3 mb-3 case-border-b">
-        <div className="flex items-center gap-2">
-          <Bot className="w-4 h-4 text-ink" />
-          <h3 className="font-display font-bold text-base tracking-tight text-ink">
-            Live Agent Activity
-          </h3>
-        </div>
-        <div className="flex items-center gap-1.5 text-xs font-mono text-teal bg-teal/10 px-2 py-0.5 rounded">
-          <span className="w-2 h-2 rounded-full bg-teal animate-ping" />
-          <span>Stream Active</span>
-        </div>
+    <div className="panel">
+      <div className="panel-head">
+        <h2>AI Agent Activity</h2>
+        <span className="badge green" style={{ fontSize: 9 }}>
+          {connected ? "Live updates" : "Connecting"}
+        </span>
       </div>
-
-      <div className="space-y-3 overflow-y-auto max-h-[380px] pr-1 scrollbar-thin">
-        {activities.length === 0 ? (
-          <div className="py-8 text-center text-xs text-ink-muted font-mono">
-            Listening for multi-agent events...
-          </div>
-        ) : (
-          activities.map((item, idx) => (
-            <div
-              key={item.id}
-              className={`p-3 rounded-sm text-xs case-border transition-all duration-300 ease-in-out ${
-                idx === 0 ? "bg-amber/5 border-amber/30 scale-[1.01]" : "bg-paper/40"
-              }`}
-            >
-              <div className="flex items-center justify-between font-mono text-[11px] mb-1.5 gap-2">
-                <span className="font-semibold text-ink flex items-center gap-1.5 truncate">
-                  {item.type === "alert" && <AlertTriangle className="w-3.5 h-3.5 text-rose shrink-0" />}
-                  {item.type === "success" && <CheckCircle2 className="w-3.5 h-3.5 text-teal shrink-0" />}
-                  {(!item.type || item.type === "info") && <Info className="w-3.5 h-3.5 text-amber shrink-0" />}
-                  <span className="truncate">{item.agent}</span>
-                </span>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {item.chip && (
-                    <span className="px-1.5 py-0.2 text-[10px] font-mono font-bold bg-ink/10 text-ink rounded case-border">
-                      {item.chip}
-                    </span>
-                  )}
-                  <span className="text-ink-muted text-[10px]">{item.timestamp}</span>
-                </div>
+      <div className="activity-list">
+        {items.length ? (
+          items.slice(0, 15).map((item) => (
+            <div className="activity-row" key={item.id}>
+              <span className="activity-icon">
+                {item.type === "success" ? (
+                  <ShieldCheck size={16} />
+                ) : item.type === "alert" ? (
+                  <TriangleAlert size={16} />
+                ) : (
+                  <Bot size={16} />
+                )}
+              </span>
+              <div>
+                <p>{item.message}</p>
+                <small>
+                  {item.agent} · {item.timestamp}
+                </small>
               </div>
-              <p className="text-ink-muted leading-relaxed font-sans">{item.message}</p>
             </div>
           ))
+        ) : (
+          <Empty
+            title="Ready when you are"
+            description="Run a scan or simulate a ticket to see your agents in action."
+          />
         )}
+      </div>
+      <div
+        style={{
+          padding: "12px 22px",
+          borderTop: "1px solid var(--line)",
+          color: "var(--muted)",
+          fontSize: 9,
+          display: "flex",
+          gap: 6,
+        }}
+      >
+        <RefreshCw size={11} />
+        Updates automatically every 4 seconds
       </div>
     </div>
   );

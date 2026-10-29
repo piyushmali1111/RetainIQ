@@ -10,6 +10,9 @@ else:
     resolved_db_url = raw_db_url
 
 class Settings(BaseSettings):
+    MANAGER_EMAIL: str = "manager@churnguard.ai"
+    MANAGER_PASSWORD: str = "ChurnGuard@2026"
+    COOKIE_SECURE: bool = False
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     ENABLE_LIVE_LLM: bool = os.getenv("ENABLE_LIVE_LLM", "false").lower() == "true"
     DATABASE_URL: str = resolved_db_url

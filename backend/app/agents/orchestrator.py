@@ -37,18 +37,7 @@ class AgentPipelineGraphState(TypedDict):
     verified_offer: Optional[dict]
 
 def emit_event(agent: str, message: str, type_label: str, chip: str, run_id: str):
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(broadcaster.broadcast_event(
-                agent=agent,
-                message=message,
-                type_label=type_label,
-                chip=chip,
-                run_id=run_id
-            ))
-    except Exception:
-        pass
+    broadcaster.emit(agent, message, type_label, chip, run_id)
 
 def support_agent_node(state: AgentPipelineGraphState) -> AgentPipelineGraphState:
     ticket_text = state.get("ticket_text")

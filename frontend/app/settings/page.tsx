@@ -1,213 +1,231 @@
 "use client";
-
 import { useEffect, useState } from "react";
-import { SettingsConfig } from "../../lib/types";
+import {
+  Save,
+  ShieldCheck,
+  Clock,
+  MessagesSquare,
+  Gift,
+  Mail,
+  RotateCcw,
+} from "lucide-react";
 import { api } from "../../lib/api";
-import { ShieldCheck, Save, RefreshCw, CheckCircle2, Sliders } from "lucide-react";
-
+import type { Settings } from "../../lib/types";
+import { PageHeader, Notice, Loading } from "../../components/ui";
+import { formatLiveDateTime } from "../../lib/formatters";
 export default function SettingsPage() {
-  const [config, setConfig] = useState<SettingsConfig & { scan_frequency?: string; fusion_alpha?: number }>({
-    max_discount_percent: 25,
-    risk_threshold: 60,
-    scan_frequency: "daily",
-    fusion_alpha: 0.7,
-  });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
-
+  const [s, setS] = useState<Settings | null>(null),
+    [saved, setSaved] = useState<Settings | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const data = await api.getSettings();
-        setConfig(data);
-      } catch (err) {
-        console.error("Failed to load settings:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadSettings();
+    api
+      .getSettings()
+      .then((v) => {
+        setS(v);
+        setSaved(v);
+      })
+      .catch((e) => setError(e.message));
   }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const updated = await api.updateSettings({
-        risk_threshold: Number(config.risk_threshold),
-        max_discount_percent: Number(config.max_discount_percent),
-        scan_frequency: config.scan_frequency || config.proactive_scan_frequency || "daily",
-      });
-      setConfig(updated);
-      setSavedMessage("Verifier Agent rules & proactive scan configuration saved successfully!");
-      setTimeout(() => setSavedMessage(null), 3500);
-    } catch (err) {
-      console.error("Failed to save settings:", err);
-      setSavedMessage("Failed to save settings. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const currentFrequency = config.scan_frequency || config.proactive_scan_frequency || "daily";
-
+  const dirty = JSON.stringify(s) !== JSON.stringify(saved);
+  if (!s) return error ? <Notice message={error} error /> : <Loading />;
+  function update(p: Partial<Settings>) {
+    setS((v) => (v ? { ...v, ...p } : v));
+    setMessage("");
+  }
   return (
-    <div className="space-y-6 max-w-4xl">
-      {/* Header */}
-      <div className="pb-4 case-border-b">
-        <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink">
-          Agent Rules & System Settings
-        </h1>
-        <p className="text-sm text-ink-muted mt-1">
-          Configure business guardrails enforced by the Verifier Agent and schedule proactive churn scans.
-        </p>
-      </div>
-
-      {savedMessage && (
-        <div className="p-3 case-border bg-teal/10 border-teal/40 text-teal text-xs font-mono rounded flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{savedMessage}</span>
-        </div>
-      )}
-
-      {/* Settings Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Verifier Agent Guardrails */}
-        <div className="case-border bg-white rounded-sm p-6 space-y-6">
-          <div className="flex items-center gap-2 pb-3 case-border-b">
-            <ShieldCheck className="w-5 h-5 text-amber" />
-            <div>
-              <h2 className="font-display font-bold text-lg tracking-tight text-ink">
-                Verifier Agent Guardrails
-              </h2>
-              <p className="text-xs text-ink-muted">
-                Rule-based safety ceiling preventing agents from issuing overly generous discounts.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-xs font-mono font-semibold text-ink uppercase mb-2">
-                Maximum Discount Percentage Allowed (%)
-              </label>
-              <div className="relative">
+    <>
+      <PageHeader
+        title="Agent Rules & Settings"
+        description="Your business. Your rules. Give your AI the right boundaries."
+      >
+        <span className="badge neutral">
+          <ShieldCheck size={12} />
+          Policy-controlled automation
+        </span>
+      </PageHeader>
+      <Notice message={error} error />
+      <Notice message={message} />
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            const r = await api.updateSettings(s);
+            setS(r);
+            setSaved(r);
+            setMessage(
+              "Settings saved. Your agents and scan schedule now use these rules.",
+            );
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="settings-grid">
+          <section className="panel">
+            <div className="setting-section">
+              <h2>Risk Detection</h2>
+              <p>Minimum customer risk score for retention offer generation.</p>
+              <div className="range-row">
                 <input
-                  type="number"
-                  min={5}
-                  max={50}
-                  disabled={loading}
-                  value={config.max_discount_percent}
+                  aria-label="Risk threshold"
+                  type="range"
+                  min={20}
+                  max={95}
+                  value={s.risk_threshold}
                   onChange={(e) =>
-                    setConfig({ ...config, max_discount_percent: Number(e.target.value) })
+                    update({ risk_threshold: Number(e.target.value) })
                   }
-                  className="w-full p-2.5 text-sm font-mono case-border rounded bg-paper text-ink focus:outline-none"
                 />
+                <strong>{s.risk_threshold}%</strong>
               </div>
-              <p className="text-[11px] text-ink-muted mt-1">
-                If the Retention Agent drafts an offer exceeding this limit, the Verifier Agent automatically rejects it.
-              </p>
+              <div className="range-labels">
+                <span>20% · More proactive</span>
+                <span>95% · Highest risk only</span>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-mono font-semibold text-ink uppercase mb-2">
-                Churn Risk Trigger Threshold (0–100)
-              </label>
-              <input
-                type="number"
-                min={10}
-                max={95}
-                disabled={loading}
-                value={config.risk_threshold}
-                onChange={(e) =>
-                  setConfig({ ...config, risk_threshold: Number(e.target.value) })
-                }
-                className="w-full p-2.5 text-sm font-mono case-border rounded bg-paper text-ink focus:outline-none"
-              />
-              <p className="text-[11px] text-ink-muted mt-1">
-                Customers with a combined risk score at or above this value will be flagged for an offer draft.
-              </p>
+            <div className="setting-section">
+              <h2>Proactive Scan</h2>
+              <p>Automatically scan your customer base for signs of churn.</p>
+              <div className="setting-row">
+                <span>Scan frequency</span>
+                <select
+                  aria-label="Scan frequency"
+                  value={s.scan_frequency}
+                  onChange={(e) => update({ scan_frequency: e.target.value })}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="disabled">Paused</option>
+                </select>
+              </div>
+              <div
+                className="notice"
+                style={{ marginTop: 14, marginBottom: 0, fontSize: 10 }}
+              >
+                <Clock size={14} />
+                {dirty
+                  ? "Save changes to update the schedule."
+                  : s.next_scan
+                    ? "Next scan: " + formatLiveDateTime(s.next_scan)
+                    : "Automatic scanning is paused."}
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* Section 2: Core Formula Parameters (Read-Only) */}
-        <div className="case-border bg-white rounded-sm p-6 space-y-4">
-          <div className="flex items-center gap-2 pb-3 case-border-b">
-            <Sliders className="w-5 h-5 text-ink" />
-            <div>
-              <h2 className="font-display font-bold text-lg tracking-tight text-ink">
-                Risk Fusion Parameters
-              </h2>
-              <p className="text-xs text-ink-muted">
-                Core formula weights from the research paper defining multimodal fusion.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-3 bg-paper case-border rounded text-xs font-mono text-ink">
-            <span className="font-bold">Fusion weight (alpha): {config.fusion_alpha ?? 0.7}</span>
-            <span className="text-ink-muted ml-2">— behavioral risk 70%, live urgency 30%</span>
-          </div>
-        </div>
-
-        {/* Section 3: Proactive Scan Schedule */}
-        <div className="case-border bg-white rounded-sm p-6 space-y-6">
-          <div className="flex items-center gap-2 pb-3 case-border-b">
-            <RefreshCw className="w-5 h-5 text-ink" />
-            <div>
-              <h2 className="font-display font-bold text-lg tracking-tight text-ink">
-                APScheduler Proactive Scan Frequency
-              </h2>
-              <p className="text-xs text-ink-muted">
-                Schedule batch scoring jobs for silent churners who haven&apos;t filed support tickets.
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-mono font-semibold text-ink uppercase mb-2">
-              Automated Scan Cadence
-            </label>
-            <div className="flex items-center gap-6 text-xs font-mono">
-              <label className="flex items-center gap-2 cursor-pointer p-3 case-border rounded bg-paper w-full max-w-xs">
+          </section>
+          <section className="panel">
+            <div className="setting-section">
+              <h2>Discount Policy</h2>
+              <p>Maximum discount your team and AI can offer.</p>
+              <div className="range-row">
                 <input
-                  type="radio"
-                  name="frequency"
-                  value="daily"
-                  checked={currentFrequency === "daily"}
-                  onChange={() => setConfig({ ...config, scan_frequency: "daily" })}
+                  aria-label="Maximum discount"
+                  type="range"
+                  min={0}
+                  max={50}
+                  value={s.max_discount_percent}
+                  onChange={(e) =>
+                    update({ max_discount_percent: Number(e.target.value) })
+                  }
                 />
-                <span className="font-bold text-ink">Daily Cron Job (Recommended)</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer p-3 case-border rounded bg-paper w-full max-w-xs">
-                <input
-                  type="radio"
-                  name="frequency"
-                  value="weekly"
-                  checked={currentFrequency === "weekly"}
-                  onChange={() => setConfig({ ...config, scan_frequency: "weekly" })}
-                />
-                <span className="font-bold text-ink">Weekly Sunday Scan</span>
-              </label>
+                <strong>{s.max_discount_percent}%</strong>
+              </div>
+              <div className="range-labels">
+                <span>0%</span>
+                <span>50%</span>
+              </div>
+              <p style={{ marginBottom: 0, fontSize: 10 }}>
+                Every offer is checked again against this policy when you
+                approve it.
+              </p>
             </div>
-          </div>
+            <div className="setting-section">
+              <h2>AI Agent Settings</h2>
+              <div className="setting-row">
+                <span style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <MessagesSquare size={15} />
+                  Enable support ticket monitoring
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Support ticket monitoring"
+                  aria-checked={s.ticket_monitoring}
+                  className="switch"
+                  onClick={() =>
+                    update({ ticket_monitoring: !s.ticket_monitoring })
+                  }
+                >
+                  <span />
+                </button>
+              </div>
+              <div className="setting-row">
+                <span style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <Gift size={15} />
+                  Enable automated offer generation
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Automated offer generation"
+                  aria-checked={s.automated_offers}
+                  className="switch"
+                  onClick={() =>
+                    update({ automated_offers: !s.automated_offers })
+                  }
+                >
+                  <span />
+                </button>
+              </div>
+              <div className="setting-row">
+                <span style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <Mail size={15} />
+                  Send email after approval
+                </span>
+                <button
+                  type="button"
+                  className="switch"
+                  role="switch"
+                  aria-label="Email delivery unavailable"
+                  aria-checked={false}
+                  disabled
+                >
+                  <span />
+                </button>
+              </div>
+              <p style={{ fontSize: 10, marginBottom: 0 }}>
+                Email delivery is not connected. Approved offers are saved
+                locally for review.
+              </p>
+            </div>
+          </section>
         </div>
-
-        {/* Submit */}
-        <div className="flex items-center justify-end">
+        <div className="offer-actions" style={{ border: 0 }}>
+          <span className="muted" style={{ marginRight: "auto", fontSize: 11 }}>
+            {dirty ? "You have unsaved changes." : "All changes saved."}
+          </span>
           <button
-            type="submit"
-            disabled={saving || loading}
-            className="px-6 py-2.5 bg-ink text-paper font-mono font-bold text-xs rounded-sm case-border hover:bg-ink/90 transition-colors flex items-center gap-2 disabled:opacity-50"
+            type="button"
+            className="button"
+            disabled={!dirty || busy}
+            onClick={() => {
+              setS(saved);
+              setMessage("");
+            }}
           >
-            <Save className="w-4 h-4 text-amber" />
-            <span>{saving ? "Saving..." : "Save Configuration Rules"}</span>
+            <RotateCcw size={14} />
+            Discard changes
+          </button>
+          <button className="button primary" disabled={!dirty || busy}>
+            <Save size={14} />
+            {busy ? "Saving…" : "Save Settings"}
           </button>
         </div>
       </form>
-    </div>
+    </>
   );
 }

@@ -44,8 +44,9 @@ def calculate_target_discount(combined_risk: int, total_spent: float, max_discou
     risk_factor = max(0.0, min(1.0, combined_risk / 100.0))
     spend_factor = min(1.0, total_spent / 3000.0) if total_spent > 0 else 0.0
 
-    raw_discount = 10 + int(round(risk_factor * 0.7 * (max_discount - 10) + spend_factor * 0.3 * (max_discount - 10)))
-    return max(10, min(max_discount, raw_discount))
+    minimum = min(10, max_discount)
+    raw_discount = minimum + int(round(risk_factor * 0.7 * (max_discount - minimum) + spend_factor * 0.3 * (max_discount - minimum)))
+    return max(0, min(max_discount, raw_discount))
 
 def run_retention_agent(
     customer_name: str,
@@ -87,6 +88,13 @@ def run_retention_agent(
     # Deterministic grounded reasoning (Section 8 requirement)
     reasoning = build_structured_reasoning(shap_factors, ticket_text, urgency_score)
 
+    prompt = (
+        "Draft a concise retention message using only these customer facts: "
+        + json.dumps(allowed_facts)
+        + f". Offer exactly {target_discount}% off the next purchase. "
+        + "Do not invent coupon codes, completed refunds or shipping actions. "
+        + 'Return JSON with one string field named "drafted_message".'
+    )
     api_key = settings.GEMINI_API_KEY
     drafted_message = None
 

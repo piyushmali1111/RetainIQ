@@ -4,25 +4,31 @@ FastAPI + LangGraph + XGBoost + VADER churn prevention backend.
 
 ## Quick Start
 
-```bash
+```powershell
 cd backend
 
-# 1. Install dependencies
+# 1. Create & activate virtual environment (first time only)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 2. Install dependencies (first time only)
 pip install -r requirements.txt
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY
+# 3. Configure environment (first time only)
+copy .env.example .env
+# Edit .env and add your GEMINI_API_KEY if needed
 
-# 3. Generate synthetic training data
-python generate_synthetic_data.py
+# 4. Start the API server
+.\start.ps1          # recommended: handles venv automatically
 
-# 4. Train ML models (run once — saves to models/)
-python app/ml/train_churn_model.py
-
-# 5. Start the API server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# OR manually with venv activated:
+# .\.venv\Scripts\Activate.ps1
+# uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+> **Common mistake:** Running `uvicorn` without activating `.venv` uses the
+> system Python which doesn't have the project packages. Always use `.\start.ps1`
+> or activate the venv first.
 
 ## API Docs
 

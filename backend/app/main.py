@@ -1,15 +1,17 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db.models import Base
-from app.db.session import engine
+from app.db.session import engine, SessionLocal
 from app.db.seed_data import seed_db
 from app.api.routes import dashboard, customers, tickets, offers, scan, settings as settings_route
 from app.websocket.agent_activity import broadcaster
 from app.scheduler.proactive_scan import start_scheduler, stop_scheduler
+from app.api.routes import auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,6 +19,7 @@ async def lifespan(app: FastAPI):
     print("[*] ChurnGuardAI Backend starting up...")
     Base.metadata.create_all(bind=engine)
     seed_db()
+    broadcaster.loop = asyncio.get_running_loop()
     start_scheduler()
     print("[+] API ready.")
     yield
@@ -41,13 +44,22 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
     ],
-    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Mount REST routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+
+@app.middleware("http")
+async def manager_session(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login" and request.method != "OPTIONS":
+        with SessionLocal() as db:
+            if not auth.valid_session(request.cookies.get(auth.COOKIE), db):
+                return JSONResponse({"detail": "Please sign in to continue."}, status_code=401)
+    return await call_next(request)
+
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(tickets.router, prefix="/api/tickets", tags=["Tickets"])
@@ -58,6 +70,10 @@ app.include_router(settings_route.router, prefix="/api/settings", tags=["Setting
 # WebSocket endpoint for live agent activity stream
 @app.websocket("/ws/agent-activity")
 async def ws_agent_activity(websocket: WebSocket):
+    with SessionLocal() as db:
+        if not auth.valid_session(websocket.cookies.get(auth.COOKIE), db):
+            await websocket.close(code=1008)
+            return
     await broadcaster.connect(websocket)
     try:
         # Keep connection alive
@@ -72,3 +88,8 @@ async def ws_agent_activity(websocket: WebSocket):
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "ChurnGuardAI API"}
+
+
+@app.get("/api/activity")
+def activity_feed():
+    return list(broadcaster.events)

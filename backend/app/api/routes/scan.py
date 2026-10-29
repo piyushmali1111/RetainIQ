@@ -2,7 +2,7 @@ import uuid
 import asyncio
 from datetime import datetime, timedelta
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import Customer, Offer
@@ -12,6 +12,7 @@ from app.ml.churn_predictor import predict_churn_risk_batch, score_to_status
 from app.ml.shap_explainer import explain_churn_risk
 from app.agents.orchestrator import run_agent_pipeline
 from app.services.settings_service import get_system_settings
+from app.services.preferences import get_preferences
 from app.services.metrics import get_total_customers, get_high_risk_count
 from app.websocket.agent_activity import broadcaster
 
@@ -58,7 +59,7 @@ def run_proactive_scan(db: Session = Depends(get_db)):
     try:
         new_scores = predict_churn_risk_batch(df)
     except Exception as e:
-        new_scores = [c.churn_risk_score for c in customers]
+        raise HTTPException(503, "The churn model could not be loaded. Check the backend logs.") from e
 
     now_utc = datetime.utcnow()
     newly_flagged_count = 0
@@ -95,7 +96,7 @@ def run_proactive_scan(db: Session = Depends(get_db)):
 
     # Rank by fused_score * lifetime spend descending
     eligible_candidates.sort(key=lambda item: (item[0].fused_score or item[0].churn_risk_score) * item[0].total_spent, reverse=True)
-    top_candidates = eligible_candidates[:25]
+    top_candidates = eligible_candidates[:25] if get_preferences(db).automated_offers else []
 
     new_offers_count = 0
     for cust, days_inact in top_candidates:
@@ -153,17 +154,7 @@ def run_proactive_scan(db: Session = Depends(get_db)):
     total_count = get_total_customers(db)
     flagged_count = get_high_risk_count(db, threshold)
 
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(broadcaster.broadcast_event(
-                agent="Scheduler",
-                message=f"Proactive scan completed: {total_count:,} customers scored, {flagged_count} flagged.",
-                type_label="info",
-                chip="Proactive Scan"
-            ))
-    except Exception:
-        pass
+    broadcaster.emit("Scheduler", f"Scan complete: {total_count:,} customers scored, {flagged_count:,} at risk, {new_offers_count} offers created.", "success", "Proactive Scan")
 
     return ScanRunResponse(
         scanned_customers=total_count,

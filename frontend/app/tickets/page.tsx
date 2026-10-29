@@ -1,366 +1,415 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Ticket, CustomerDetail } from "../../lib/types";
-import { api } from "../../lib/api";
-import { formatLiveDateTime, formatRelativeTime } from "../../lib/formatters";
 import {
-  Ticket as TicketIcon,
-  Smile,
-  Meh,
-  Frown,
   Plus,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  ArrowUpRight,
   Send,
-  User,
   Bot,
-  ArrowRight,
-  ShieldAlert,
+  User,
+  RefreshCw,
 } from "lucide-react";
-
-export default function TicketQueuePage() {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // New ticket modal form state
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [selectedCustId, setSelectedCustId] = useState("CUST-1000");
-  const [ticketMessage, setTicketMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const fetchTickets = async () => {
-    setLoading(true);
+import { api } from "../../lib/api";
+import type { Ticket, CustomerSummary } from "../../lib/types";
+import {
+  PageHeader,
+  Notice,
+  Avatar,
+  Badge,
+  Empty,
+  Loading,
+  Modal,
+} from "../../components/ui";
+import { formatRelativeTime, formatLiveDateTime } from "../../lib/formatters";
+export default function Tickets() {
+  const [items, setItems] = useState<Ticket[]>([]),
+    [busy, setBusy] = useState(true),
+    [error, setError] = useState(""),
+    [page, setPage] = useState(1),
+    [filter, setFilter] = useState("All Tickets"),
+    [search, setSearch] = useState(""),
+    [selected, setSelected] = useState<Ticket | null>(null),
+    [create, setCreate] = useState(false),
+    [customers, setCustomers] = useState<CustomerSummary[]>([]),
+    [customerId, setCustomerId] = useState(""),
+    [customerQuery, setCustomerQuery] = useState(""),
+    [message, setMessage] = useState(""),
+    [submitting, setSubmitting] = useState(false),
+    [formError, setFormError] = useState("");
+  async function load() {
+    setBusy(true);
     try {
-      const data = await api.getTickets();
-      setTickets(data);
-      if (data.length > 0 && !selectedTicket) {
-        handleSelectTicket(data[0]);
-      }
-    } catch (err) {
-      console.error("Failed to load tickets", err);
+      setItems(await api.getTickets());
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  };
-
+  }
   useEffect(() => {
-    fetchTickets();
+    load();
   }, []);
-
-  const handleSelectTicket = async (ticket: Ticket) => {
-    setSelectedTicket(ticket);
-    try {
-      const cust = await api.getCustomerById(ticket.customer_id);
-      setCustomerDetail(cust);
-    } catch (err) {
-      setCustomerDetail(null);
-    }
-  };
-
-  const handleCreateTicketSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ticketMessage.trim()) return;
-
-    setSubmitting(true);
-    try {
-      const res = await api.createTicket(selectedCustId, ticketMessage);
-      setTicketMessage("");
-      setShowNewModal(false);
-      await fetchTickets();
-      handleSelectTicket(res.ticket);
-    } catch (err) {
-      alert("Failed to submit ticket.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Section 5: Show "Angry · Urgency 92"
-  const getSentimentBadge = (label: "Angry" | "Neutral" | "Happy", urgency?: number) => {
-    const u = urgency !== undefined ? urgency : 50;
-    switch (label) {
-      case "Angry":
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono font-semibold bg-rose/15 text-rose rounded-sm case-border">
-            <Frown className="w-3.5 h-3.5" /> Angry · Urgency {u}
-          </span>
-        );
-      case "Happy":
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono font-semibold bg-teal/15 text-teal rounded-sm case-border">
-            <Smile className="w-3.5 h-3.5" /> Happy · Urgency {u}
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono font-semibold bg-amber/15 text-amber rounded-sm case-border">
-            <Meh className="w-3.5 h-3.5" /> Neutral · Urgency {u}
-          </span>
-        );
-    }
-  };
-
-  const baselineVal = selectedTicket?.baseline_score ?? customerDetail?.churn_risk_score ?? 70;
-  const urgencyVal = selectedTicket?.urgency_score ?? 50;
-  const fusedVal = selectedTicket?.fused_score ?? Math.round(0.7 * baselineVal + 0.3 * urgencyVal);
-
+  useEffect(() => {
+    if (!create) return;
+    const c = new AbortController();
+    const timer = setTimeout(
+      () =>
+        api
+          .getCustomers({ page_size: 20, search: customerQuery }, c.signal)
+          .then((r) => setCustomers(r.items))
+          .catch((e) => {
+            if (e.name !== "AbortError") setFormError(e.message);
+          }),
+      200,
+    );
+    return () => {
+      clearTimeout(timer);
+      c.abort();
+    };
+  }, [create, customerQuery]);
+  const filtered = items.filter(
+    (t) =>
+      (filter === "All Tickets" || t.sentiment_label === filter) &&
+      (t.customer_name + " " + t.customer_id + " " + t.message)
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 case-border-b">
-        <div>
-          <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink">
-            Support Ticket Queue
-          </h1>
-          <p className="text-sm text-ink-muted mt-1">
-            Real-time ticket sentiment scoring and AI support responses.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="px-4 py-2 bg-ink text-paper text-xs font-mono font-semibold rounded-sm case-border hover:bg-ink/90 transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4 text-amber" />
-          <span>Simulate Incoming Ticket</span>
+    <>
+      <PageHeader
+        title="Support Tickets"
+        description="Listen to your customers. Turn every conversation into an opportunity."
+      >
+        <button className="button" aria-label="Refresh tickets" onClick={load}>
+          <RefreshCw size={14} />
         </button>
-      </div>
-
-      {/* Main Split View: Queue List (Left 40%) + Detail Thread (Right 60%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Ticket List Column */}
-        <div className="lg:col-span-5 case-border bg-white rounded-sm overflow-hidden flex flex-col h-[680px]">
-          <div className="p-4 bg-paper/60 case-border-b flex items-center justify-between">
-            <span className="text-xs font-semibold text-ink uppercase tracking-wider font-mono">
-              Inbox Queue ({tickets.length})
-            </span>
-            <span className="text-xs text-ink-muted font-mono">
-              VADER Sentiment Analyzed
-            </span>
-          </div>
-
-          <div className="divide-y divide-line overflow-y-auto flex-1">
-            {loading ? (
-              <div className="p-8 text-center text-xs text-ink-muted font-mono">Loading support tickets...</div>
-            ) : tickets.length === 0 ? (
-              <div className="p-8 text-center text-xs text-ink-muted">No tickets found in queue.</div>
-            ) : (
-              tickets.map((tck) => {
-                const isSelected = selectedTicket?.id === tck.id;
-                const urgency = tck.urgency_score ?? tck.sentiment_score;
-                return (
-                  <button
-                    key={tck.id}
-                    onClick={() => handleSelectTicket(tck)}
-                    className={`w-full text-left p-4 transition-all flex flex-col gap-2 ${
-                      isSelected
-                        ? "bg-paper/90 border-l-4 border-l-ink"
-                        : "hover:bg-paper/40"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-ink">{tck.customer_name || tck.customer_id}</span>
-                      <span className="text-xs text-ink-muted font-mono">
-                        {formatRelativeTime(tck.created_at)}
-                      </span>
-                    </div>
-
-                    <p className="text-sm text-ink-muted/90 line-clamp-2 leading-relaxed">
-                      &quot;{tck.message}&quot;
-                    </p>
-
-                    <div className="flex items-center justify-between pt-1">
-                      {getSentimentBadge(tck.sentiment_label, urgency)}
-                      <span className="text-xs text-ink-muted font-mono">#{tck.id}</span>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
+        <button
+          className="button primary"
+          onClick={() => {
+            setFormError("");
+            setCreate(true);
+          }}
+        >
+          <Plus size={15} />
+          Simulate Ticket
+        </button>
+      </PageHeader>
+      <Notice message={error} error />
+      <section className="panel">
+        <div className="tabs" role="tablist" aria-label="Ticket sentiment">
+          {["All Tickets", "Angry", "Neutral", "Happy"].map((f) => (
+            <button
+              key={f}
+              role="tab"
+              aria-selected={filter === f}
+              className={filter === f ? "active" : ""}
+              onClick={() => {
+                setFilter(f);
+                setPage(1);
+              }}
+            >
+              {f}
+              <span>
+                (
+                {
+                  items.filter(
+                    (t) => f === "All Tickets" || t.sentiment_label === f,
+                  ).length
+                }
+                )
+              </span>
+            </button>
+          ))}
         </div>
-
-        {/* Ticket Detail Thread Column */}
-        <div className="lg:col-span-7 case-border bg-white rounded-sm p-6 flex flex-col justify-between h-[680px]">
-          {selectedTicket ? (
-            <div className="flex flex-col h-full justify-between">
-              {/* Top Banner with Customer Risk Score */}
-              <div>
-                <div className="pb-4 case-border-b flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-xs font-mono font-medium text-ink-muted bg-paper px-2 py-0.5 rounded case-border">{selectedTicket.id}</span>
-                      <h2 className="font-semibold text-xl tracking-tight text-ink">
-                        {selectedTicket.customer_name || selectedTicket.customer_id}
-                      </h2>
-                    </div>
-                    <p className="text-xs text-ink-muted mt-1 font-mono">
-                      Created: {formatLiveDateTime(selectedTicket.created_at)} ({formatRelativeTime(selectedTicket.created_at)})
-                    </p>
-                  </div>
-
-                  {/* Section 5: Three small stat blocks: Baseline, Urgency, Fused (emphasized) */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 case-border p-2 rounded bg-paper">
-                      <div className="px-2 py-1 text-center">
-                        <div className="text-[10px] text-ink-muted uppercase font-mono font-semibold">Baseline</div>
-                        <div className="font-bold text-sm text-ink font-mono">{baselineVal}</div>
-                      </div>
-                      <div className="h-6 w-px bg-line" />
-                      <div className="px-2 py-1 text-center">
-                        <div className="text-[10px] text-ink-muted uppercase font-mono font-semibold">Urgency</div>
-                        <div className="font-bold text-sm text-ink font-mono">{urgencyVal}</div>
-                      </div>
-                      <div className="h-6 w-px bg-line" />
-                      <div className="px-2.5 py-1 text-center bg-purple-100 rounded case-border border-purple-300">
-                        <div className="text-[10px] text-purple-900 uppercase font-mono font-extrabold">Fused</div>
-                        <div className="font-extrabold text-base text-purple-900 font-mono">{fusedVal}</div>
-                      </div>
-                    </div>
-
-                    {customerDetail && (
+        <div className="toolbar">
+          <label className="search-input">
+            <Search size={15} />
+            <input
+              aria-label="Search tickets"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search tickets, customers or conversations…"
+            />
+          </label>
+          <span className="badge neutral">
+            Sentiment analyzed automatically
+          </span>
+        </div>
+        {busy ? (
+          <Loading />
+        ) : filtered.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Conversation</th>
+                  <th>Sentiment</th>
+                  <th>Urgency</th>
+                  <th>Time</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice((page - 1) * 10, page * 10).map((t) => (
+                  <tr key={t.id}>
+                    <td>
                       <Link
-                        href={`/customers/${customerDetail.id}`}
-                        className="text-xs text-ink hover:text-amber font-semibold flex items-center gap-1 transition-colors p-2 case-border rounded bg-white"
+                        className="person"
+                        href={"/customers/" + t.customer_id}
                       >
-                        Profile <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    )}
-                  </div>
-                </div>
-
-                {/* Conversation Thread */}
-                <div className="py-6 space-y-6 overflow-y-auto max-h-[460px] pr-2">
-                  {/* Customer Message Bubble */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-paper case-border flex items-center justify-center shrink-0 text-ink">
-                      <User className="w-4 h-4" />
-                    </div>
-                    <div className="case-border p-4 rounded-sm bg-paper/60 space-y-2 max-w-xl">
-                      <div className="flex items-center justify-between gap-4 text-xs">
-                        <span className="font-semibold text-ink">
-                          {selectedTicket.customer_name || "Customer"}
+                        <Avatar name={t.customer_name} />
+                        <span>
+                          <strong>{t.customer_name}</strong>
+                          <small>{t.customer_id}</small>
                         </span>
-                        {getSentimentBadge(selectedTicket.sentiment_label, urgencyVal)}
-                      </div>
-                      <p className="text-sm text-ink leading-relaxed">
-                        {selectedTicket.message}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* AI Support Agent Reply Bubble */}
-                  {selectedTicket.agent_reply && (
-                    <div className="flex items-start gap-3 flex-row-reverse">
-                      <div className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center shrink-0">
-                        <Bot className="w-4 h-4 text-amber" />
-                      </div>
-                      <div className="case-border p-4 rounded-sm bg-ink/5 space-y-2 max-w-xl text-left border-ink/20">
-                        <div className="flex items-center justify-between text-xs pb-1">
-                          <span className="font-semibold text-ink flex items-center gap-1.5 font-mono">
-                            <Bot className="w-3.5 h-3.5 text-amber" /> ChurnGuardAI Support Agent (AI)
-                          </span>
-                          <span className="text-[11px] text-ink-muted font-mono">FAQ Retrieval</span>
-                        </div>
-                        <p className="text-sm text-ink leading-relaxed">
-                          {selectedTicket.agent_reply}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Bar */}
-              <div className="pt-4 case-border-t flex items-center justify-between text-xs font-mono">
-                <span className="text-ink-muted">
-                  VADER Compound: <span className="font-semibold text-ink">{selectedTicket.sentiment_score}/100</span> ({selectedTicket.sentiment_label})
-                </span>
-
-                <Link
-                  href="/approvals"
-                  className="px-4 py-2 bg-amber text-ink font-semibold rounded-sm hover:bg-amber/90 transition-colors flex items-center gap-1.5 shadow-sm"
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  <span>View Pending Offers</span>
-                </Link>
-              </div>
+                      </Link>
+                    </td>
+                    <td>
+                      <button
+                        className="text-button ticket-subject"
+                        onClick={() => setSelected(t)}
+                      >
+                        {t.message}
+                        <small>
+                          {t.id} ·{" "}
+                          {t.agent_reply
+                            ? "AI response available"
+                            : "Awaiting response"}
+                        </small>
+                      </button>
+                    </td>
+                    <td>
+                      <Badge>{t.sentiment_label}</Badge>
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          (t.urgency_score ?? t.sentiment_score) >= 65
+                            ? "red"
+                            : (t.urgency_score ?? t.sentiment_score) < 40
+                              ? "green"
+                              : "orange"
+                        }
+                      >
+                        {t.urgency_score ?? t.sentiment_score}
+                      </Badge>
+                    </td>
+                    <td className="muted">
+                      {formatRelativeTime(t.created_at)}
+                    </td>
+                    <td>
+                      <button
+                        className="table-action"
+                        aria-label={"Open ticket " + t.id}
+                        onClick={() => setSelected(t)}
+                      >
+                        <ArrowUpRight size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty
+            title="No matching conversations"
+            description="Adjust your filters or simulate a new customer ticket."
+          />
+        )}
+        {!busy && filtered.length > 0 && (
+          <div className="pagination">
+            <button
+              className="page-button"
+              aria-label="Previous ticket page"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span style={{ marginLeft: 0 }}>
+              Page {page} of {Math.ceil(filtered.length / 10)}
+            </span>
+            <button
+              className="page-button"
+              aria-label="Next ticket page"
+              disabled={page * 10 >= filtered.length}
+              onClick={() => setPage(page + 1)}
+            >
+              <ChevronRight size={14} />
+            </button>
+            <span>
+              {(page - 1) * 10 + 1} - {Math.min(page * 10, filtered.length)} of{" "}
+              {filtered.length} tickets
+            </span>
+          </div>
+        )}
+      </section>
+      {selected && (
+        <Modal title="Customer conversation" onClose={() => setSelected(null)}>
+          <div className="person">
+            <Avatar name={selected.customer_name} />
+            <span>
+              <strong>{selected.customer_name}</strong>
+              <small>
+                {selected.id} · {formatLiveDateTime(selected.created_at)}
+              </small>
+            </span>
+          </div>
+          <div className="conversation-bubble">
+            <div
+              className="setting-row"
+              style={{ padding: 0, marginBottom: 10 }}
+            >
+              <span style={{ display: "flex", gap: 7 }}>
+                <User size={16} />
+                Customer
+              </span>
+              <Badge>{selected.sentiment_label}</Badge>
             </div>
-          ) : (
-            <div className="h-full flex items-center justify-center text-xs text-ink-muted font-mono">
-              Select a support ticket from the queue to view thread details.
+            {selected.message}
+          </div>
+          {selected.agent_reply && (
+            <div className="conversation-bubble reply">
+              <p
+                style={{
+                  display: "flex",
+                  gap: 7,
+                  marginBottom: 8,
+                  fontWeight: 600,
+                }}
+              >
+                <Bot size={17} />
+                ChurnGuardAI Support
+              </p>
+              {selected.agent_reply}
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Simulate Ticket Modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 bg-ink/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white case-border rounded-sm p-6 w-full max-w-md space-y-4">
-            <h3 className="font-display font-bold text-xl tracking-tight text-ink">
-              Simulate Incoming Ticket
-            </h3>
-            <p className="text-xs text-ink-muted">
-              Submitting this ticket will trigger the reactive LangGraph agent pipeline live.
-            </p>
-
-            <form onSubmit={handleCreateTicketSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono font-medium text-ink uppercase mb-1">
-                  Select Customer
-                </label>
-                <select
-                  value={selectedCustId}
-                  onChange={(e) => setSelectedCustId(e.target.value)}
-                  className="w-full p-2 text-xs case-border rounded bg-paper text-ink font-mono focus:outline-none"
-                >
-                  <option value="CUST-1000">Lucas Vance (CUST-1000 - High Risk)</option>
-                  <option value="CUST-1001">Elena Rostova (CUST-1001 - High Risk)</option>
-                  <option value="CUST-1002">Sophia Chen (CUST-1002 - High Risk)</option>
-                  <option value="CUST-1003">Devon Miller (CUST-1003 - Watching)</option>
-                  <option value="CUST-1004">Marcus Sterling (CUST-1004 - Safe)</option>
-                  <option value="CUST-1005">Amara Thorne (CUST-1005 - Safe)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono font-medium text-ink uppercase mb-1">
-                  Ticket Message
-                </label>
-                <textarea
-                  rows={4}
-                  value={ticketMessage}
-                  onChange={(e) => setTicketMessage(e.target.value)}
-                  placeholder="e.g. My order was damaged upon arrival. Very upset!"
-                  className="w-full p-2.5 text-xs case-border rounded bg-paper text-ink focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewModal(false)}
-                  className="px-4 py-2 bg-paper case-border text-ink text-xs font-mono rounded hover:bg-line transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-ink text-paper text-xs font-mono font-semibold rounded case-border hover:bg-ink/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5 text-amber" />
-                  <span>{submitting ? "Analyzing..." : "Submit Ticket"}</span>
-                </button>
-              </div>
-            </form>
+          <div
+            className="stats-mini"
+            style={{ gridTemplateColumns: "repeat(3,1fr)", marginTop: 22 }}
+          >
+            {[
+              ["Baseline", selected.baseline_score],
+              ["Urgency", selected.urgency_score ?? selected.sentiment_score],
+              ["Fused Risk", selected.fused_score],
+            ].map(([k, v]) => (
+              <dl key={k}>
+                <dt>{k}</dt>
+                <dd>
+                  {v ?? "—"}
+                  {v != null ? "%" : ""}
+                </dd>
+              </dl>
+            ))}
           </div>
-        </div>
+          <div className="actions">
+            <Link
+              className="button"
+              href={"/customers/" + selected.customer_id}
+            >
+              Customer profile
+            </Link>
+            <Link className="button primary" href="/approvals">
+              Review offers <ArrowUpRight size={14} />
+            </Link>
+          </div>
+        </Modal>
       )}
-    </div>
+      {create && (
+        <Modal
+          title="Simulate a support ticket"
+          onClose={() => {
+            if (!submitting) setCreate(false);
+          }}
+        >
+          <p className="muted" style={{ fontSize: 12, marginBottom: 20 }}>
+            Create a local ticket to analyze sentiment and generate a relevant
+            response.
+          </p>
+          <Notice message={formError} error />
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setSubmitting(true);
+              setFormError("");
+              try {
+                const r = await api.createTicket(customerId, message);
+                setCreate(false);
+                setMessage("");
+                await load();
+                setSelected(r.ticket);
+              } catch (e) {
+                setFormError((e as Error).message);
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            <label className="field">
+              <span>Find a customer</span>
+              <input
+                value={customerQuery}
+                onChange={(e) => setCustomerQuery(e.target.value)}
+                placeholder="Search by name or ID"
+              />
+            </label>
+            <label className="field">
+              <span>Customer</span>
+              <select
+                style={{ width: "100%" }}
+                required
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+              >
+                <option value="">Choose a customer</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} · {c.id} · {c.churn_status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Message</span>
+              <textarea
+                required
+                minLength={3}
+                maxLength={5000}
+                rows={4}
+                placeholder="Tell us about the customer’s experience…"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+            </label>
+            <div className="actions">
+              <button
+                type="button"
+                className="button"
+                disabled={submitting}
+                onClick={() => setCreate(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary"
+                disabled={submitting || !customerId || !message.trim()}
+              >
+                <Send size={14} />
+                {submitting ? "Analyzing conversation…" : "Submit Ticket"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
   );
 }

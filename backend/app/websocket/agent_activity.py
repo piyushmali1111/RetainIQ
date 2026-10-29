@@ -1,46 +1,39 @@
-import json
 import asyncio
-from datetime import datetime
-from typing import List, Optional
-from fastapi import WebSocket, WebSocketDisconnect
+import json
+import uuid
+from collections import deque
+from datetime import datetime, timezone
+from fastapi import WebSocket
 
 class AgentActivityBroadcaster:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections = []
+        self.events = deque(maxlen=100)
+        self.loop = None
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
-    async def broadcast_event(
-        self,
-        agent: str,
-        message: str,
-        type_label: str = "info",
-        chip: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        payload = json.dumps({
-            "agent": agent,
-            "message": message,
-            "timestamp": timestamp,
-            "type": type_label,
-            "chip": chip,
-            "run_id": run_id,
-        })
-        disconnected = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(payload)
-            except Exception:
-                disconnected.append(connection)
+    def emit(self, agent, message, type_label='info', chip=None, run_id=None):
+        event = dict(id=uuid.uuid4().hex, agent=agent, message=message,
+            timestamp=datetime.now(timezone.utc).strftime('%H:%M UTC'), type=type_label, chip=chip, run_id=run_id)
+        self.events.appendleft(event)
+        if self.loop and self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._send(event), self.loop)
 
-        for conn in disconnected:
-            self.disconnect(conn)
+    async def _send(self, event):
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(json.dumps(event))
+            except Exception:
+                self.disconnect(connection)
+
+    async def broadcast_event(self, agent, message, type_label='info', chip=None, run_id=None):
+        self.emit(agent, message, type_label, chip, run_id)
 
 broadcaster = AgentActivityBroadcaster()
