@@ -2124,3 +2124,16 @@ select,
 .product-economic-tags .badge {
   white-space: normal;
 }
+
+.risk-distribution { padding: 0 clamp(10px, 2vw, 24px) 18px; }
+.risk-distribution table { width: 100%; min-width: 0; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.risk-distribution caption { text-align: left; padding-bottom: 12px; font-size: 12px; color: #536682; }
+.risk-distribution th, .risk-distribution td { padding: 10px 5px; text-align: left; }
+.risk-distribution thead th { font-size: 11px; color: #52647e; white-space: normal; }
+.risk-distribution tbody th, .risk-distribution td { font-size: 12px; }
+.risk-distribution th:last-child, .risk-distribution td:last-child { text-align: right; }
+.risk-distribution td:nth-child(2) { width: 56%; }
+.risk-share { display: flex; align-items: center; gap: 8px; }
+.risk-share > span:last-child { min-width: 4ch; text-align: right; }
+.risk-track { flex: 1; height: 12px; overflow: hidden; background: #eaf0fa; border-radius: 3px; }
+.risk-track > span { display: block; height: 100%; background: #386bcc; }

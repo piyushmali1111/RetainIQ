@@ -162,3 +162,16 @@ def test_small_discount_ceiling_matches_generated_message():
         result = run_retention_agent("Test", 90, [], total_spent=2000, max_discount=ceiling, product=product)
         assert 0 <= result["discount_percent"] <= ceiling
         assert str(result["discount_percent"]) + "%" in result["drafted_message"]
+
+
+def test_dashboard_risk_bands_count_each_scored_customer_once(client):
+    from app.db.models import Customer
+    bands = client.get("/api/dashboard/summary").json()["risk_distribution"]
+    with SessionLocal() as db:
+        scores = [score for (score,) in db.query(Customer.churn_risk_score) if score is not None]
+    assert [band["lower"] for band in bands] == [0, 20, 40, 60, 80]
+    for band in bands:
+        low, high = band["lower"], band["upper"]
+        expected = sum(low <= score < high or score == high == 100 for score in scores)
+        assert band["customers"] == expected
+    assert sum(band["customers"] for band in bands) == sum(0 <= score <= 100 for score in scores)

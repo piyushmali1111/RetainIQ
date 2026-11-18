@@ -7,7 +7,13 @@ class WeeklyTrendPoint(BaseModel):
     churned: int
     retention_rate: Optional[float] = None
 
+class RiskScoreBand(BaseModel):
+    lower: int
+    upper: int
+    customers: int
+
 class DashboardSummaryResponse(BaseModel):
+    risk_distribution: List[RiskScoreBand]
     total_customers: int
     high_risk_today: int
     high_risk_total: Optional[int] = None

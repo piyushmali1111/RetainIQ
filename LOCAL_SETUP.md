@@ -33,7 +33,7 @@ The existing model files and dataset are included. The launcher creates backend/
 
 - / — Landing page and product walkthrough
 - /login — Manager sign-in, password visibility and remember-session control
-- /dashboard — Live totals, 4/8-week chart, real AI scan, pending offers and agent events
+- /dashboard — Live totals, customer churn risk distribution, real AI scan, pending offers and agent events
 - /customers — Backend search, risk filters, sorting, pagination and current-page CSV export
 - /customers/[id] — Risk analysis, SHAP factors, purchase totals, conversations and offer generation
 - /tickets — Sentiment filters, ticket search, pagination, simulation and conversation detail

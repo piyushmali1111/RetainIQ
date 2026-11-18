@@ -10,6 +10,7 @@ Definitions:
 """
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
+from sqlalchemy import Integer, case, cast, func
 from sqlalchemy.orm import Session
 from app.db.models import Customer, Offer, Outcome
 from app.services.settings_service import get_system_settings
@@ -129,6 +130,19 @@ def get_weekly_trend(db: Session, risk_threshold: int = None) -> List[Dict[str, 
 
     return weeks
 
+def get_risk_distribution(db: Session) -> List[Dict[str, int]]:
+    """Count valid current scores in 20-point bands, including 100 in the last."""
+    score = Customer.churn_risk_score
+    band = case((score >= 80, 4), else_=cast(score / 20, Integer))
+    counts = dict(db.query(band, func.count(Customer.id)).filter(
+        score.between(0, 100)
+    ).group_by(band).all())
+    return [
+        {"lower": start, "upper": start + 20, "customers": counts.get(start // 20, 0)}
+        for start in range(0, 100, 20)
+    ]
+
+
 def get_dashboard_summary(db: Session) -> Dict[str, Any]:
     settings = get_system_settings(db)
     threshold = settings.risk_threshold
@@ -149,4 +163,5 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
         "pending_offers_count": pending,
         "risk_threshold": threshold,
         "weekly_trend": weekly,
+        "risk_distribution": get_risk_distribution(db),
     }

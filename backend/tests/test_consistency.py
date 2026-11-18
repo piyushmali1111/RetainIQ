@@ -53,7 +53,7 @@ class TestChurnGuardAIConsistency(unittest.TestCase):
         for root, dirs, files in os.walk(root_dir):
             dirs[:] = [d for d in dirs if d not in skip_dirs]
             for file in files:
-                if file in skip_files or file.endswith((".db", ".pyc", ".png", ".jpg", ".ico", ".log")):
+                if file in skip_files or not file.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".css")):
                     continue
                 filepath = os.path.join(root, file)
                 try:

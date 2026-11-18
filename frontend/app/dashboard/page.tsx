@@ -1,16 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { RefreshCw, ArrowRight, CalendarDays } from "lucide-react";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { RefreshCw, ArrowRight } from "lucide-react";
 import { api } from "../../lib/api";
 import type { DashboardSummary, Offer } from "../../lib/types";
 import { TopMetricsStrip } from "../../components/TopMetricsStrip";
@@ -23,8 +14,9 @@ export default function Dashboard() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState(""),
-    [weeks, setWeeks] = useState(8);
+    [message, setMessage] = useState("");
+  const bands = s?.risk_distribution ?? [];
+  const scored = bands.reduce((total, band) => total + band.customers, 0);
   async function load() {
     try {
       const [a, b] = await Promise.all([
@@ -76,17 +68,6 @@ export default function Dashboard() {
           <RefreshCw size={14} className={busy ? "progress-spin" : ""} />
           {busy ? "Scanning customers…" : "Run AI Scan"}
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <CalendarDays size={15} className="muted" />
-          <select
-            aria-label="Chart time range"
-            value={weeks}
-            onChange={(e) => setWeeks(Number(e.target.value))}
-          >
-            <option value={8}>Last 8 weeks</option>
-            <option value={4}>Last 4 weeks</option>
-          </select>
-        </div>
       </PageHeader>
       <Notice message={error} error />
       <Notice message={message} />
@@ -95,113 +76,35 @@ export default function Dashboard() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>Retention vs Churn Trend</h2>
-              <p>A clearer view of your customer relationships</p>
+              <h2>Customer churn risk distribution</h2>
+              <p>Latest model score for each customer in the demo dataset.</p>
             </div>
-            <span className="badge neutral">Weekly cohorts</span>
           </div>
-          <div className="chart-legend">
-            <span>
-              <i style={{ background: "#0cb795" }} />
-              Retained Customers
-            </span>
-            <span>
-              <i style={{ background: "#f8667c" }} />
-              Churned Customers
-            </span>
-          </div>
-          <div className="chart-wrap">
-            {s ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={s.weekly_trend.slice(-weeks)}
-                  margin={{ top: 10, right: 10, bottom: 0, left: -15 }}
-                >
-                  <defs>
-                    <linearGradient
-                      id="retainedFill"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="0%"
-                        stopColor="#0cb795"
-                        stopOpacity={0.16}
-                      />
-                      <stop offset="100%" stopColor="#0cb795" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="churnFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="0%"
-                        stopColor="#f8667c"
-                        stopOpacity={0.09}
-                      />
-                      <stop offset="100%" stopColor="#f8667c" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#edf2fa" vertical={false} />
-                  <XAxis
-                    dataKey="week"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 10, fill: "#8c9bb3" }}
-                    dy={10}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 10, fill: "#8c9bb3" }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      border: "1px solid #e5ecf6",
-                      borderRadius: 10,
-                      fontSize: 11,
-                    }}
-                  />
-                  <Area
-                    name="Retained Customers"
-                    type="monotone"
-                    dataKey="retained"
-                    stroke="#0cb795"
-                    strokeWidth={2.4}
-                    fill="url(#retainedFill)"
-                    dot={{
-                      r: 3,
-                      fill: "#0cb795",
-                      strokeWidth: 2,
-                      stroke: "white",
-                    }}
-                  />
-                  <Area
-                    name="Churned Customers"
-                    type="monotone"
-                    dataKey="churned"
-                    stroke="#f8667c"
-                    strokeWidth={2}
-                    fill="url(#churnFill)"
-                    dot={{
-                      r: 3,
-                      fill: "#f8667c",
-                      strokeWidth: 2,
-                      stroke: "white",
-                    }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <Empty
-                title={error ? "Chart unavailable" : "Loading retention trend…"}
-                description={
-                  error
-                    ? "Use Run AI Scan or reload once the API is available."
-                    : ""
-                }
-              />
-            )}
-          </div>
+          {scored ? (
+            <div className="risk-distribution">
+              <table>
+                <caption>{scored.toLocaleString()} scored customers</caption>
+                <thead><tr><th scope="col">Risk score</th><th scope="col">Share of customers</th><th scope="col">Customers</th></tr></thead>
+                <tbody>
+                  {bands.map(({ lower, upper, customers }) => {
+                    const share = (customers / scored) * 100;
+                    return (
+                      <tr key={lower}>
+                        <th scope="row">{lower}{upper === 100 ? " to " : " to <"}{upper}</th>
+                        <td><div className="risk-share">
+                          <span className="risk-track" aria-hidden="true"><span style={{ width: share + "%" }} /></span>
+                          <span>{share.toFixed(1)}%</span>
+                        </div></td>
+                        <td>{customers.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty title={loading ? "Loading risk scores..." : error ? "Chart unavailable" : "No scored customers"} description={error ? "Reload the dashboard to try again." : ""} />
+          )}
         </section>
         <AgentActivityWidget />
       </div>

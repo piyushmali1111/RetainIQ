@@ -75,6 +75,7 @@ export interface CustomerDetail extends CustomerSummary {
   offers: Offer[];
 }
 export interface DashboardSummary {
+  risk_distribution: { lower: number; upper: number; customers: number }[];
   total_customers: number;
   high_risk_today: number;
   high_risk_total: number;
