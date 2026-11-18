@@ -1,4 +1,4 @@
-# ChurnGuardAI: Multimodal Multi-Agent Churn Prevention Platform
+# RetainIQ: Multimodal Multi-Agent Churn Prevention Platform
 
 **ChurnGuardAI** is an autonomous, explainable e-commerce churn detection and proactive retention platform. It implements a multi-agent swarm architecture with multimodal risk fusion, combine tabular behavioral signals with real-time support interaction sentiment, explainable AI (SHAP), and human-in-the-loop offer approval workflows.
 
@@ -22,7 +22,7 @@
 
 3. **Explainable AI (XAI)**:
    - SHAP `TreeExplainer` feature attribution represented in additive points on a 0–100 scale:
-     $$\text{points}_j = \frac{\phi_j}{\sum_k \phi_k} (\text{score} - \text{base\_score})$$
+    
 
 4. **Interactive Dashboard**:
    - 8-week cohort retention tracking with dual Y-axes.
