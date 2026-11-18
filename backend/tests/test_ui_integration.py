@@ -96,7 +96,7 @@ def get_pending(client):
     return offers[0]
 
 def test_offer_edit_stays_pending_and_policy_is_enforced(client):
-    o = get_pending(client)
+    o = next(o for o in client.get("/api/offers/pending").json() if o["effective_ceiling"] >= 10)
     assert client.patch("/api/offers/"+o["id"],json={"discount_percent":99}).status_code == 422
     updated = client.patch("/api/offers/"+o["id"],json={"discount_percent":10,"drafted_message":"Thank you for being our customer. Enjoy 10% off your next purchase."})
     assert updated.status_code == 200, updated.text
@@ -156,7 +156,9 @@ def test_support_does_not_infer_late_delivery_from_latest():
 
 def test_small_discount_ceiling_matches_generated_message():
     from app.agents.retention_agent import run_retention_agent
+    from app.db.models import Product
+    product = Product(id="test", name="Hoodie", price=100, cost_price=40)
     for ceiling in (0, 5, 9, 25):
-        result = run_retention_agent("Test", 90, [], total_spent=2000, max_discount=ceiling)
+        result = run_retention_agent("Test", 90, [], total_spent=2000, max_discount=ceiling, product=product)
         assert 0 <= result["discount_percent"] <= ceiling
         assert str(result["discount_percent"]) + "%" in result["drafted_message"]

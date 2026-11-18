@@ -6,6 +6,7 @@ import type {
   Settings,
   Ticket,
   Activity,
+  Product,
 } from "./types";
 export async function request<T>(
   path: string,
@@ -65,10 +66,12 @@ export const api = {
   getCustomerById: (id: string) =>
     request<CustomerDetail>("/customers/" + encodeURIComponent(id)),
   getTickets: () => request<Ticket[]>("/tickets?limit=10000"),
-  createTicket: (customer_id: string, message: string) =>
+  getProducts: () => request<Product[]>("/products"),
+  createTicket: (customer_id: string, message: string, product_id?: string) =>
     post<{ ticket: Ticket; offer: Offer | null }>("/tickets", {
       customer_id,
       message,
+      product_id,
     }),
   getOffers: () => request<Offer[]>("/offers"),
   getPendingOffers: () => request<Offer[]>("/offers/pending"),
@@ -82,8 +85,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
-  createOffer: (customer_id: string) =>
-    post<Offer>("/offers/generate", { customer_id }),
+  createOffer: (customer_id: string, product_id?: string) =>
+    post<Offer>("/offers/generate", { customer_id, product_id }),
   getSettings: () => request<Settings>("/settings"),
   updateSettings: (data: Partial<Settings>) =>
     request<Settings>("/settings", {

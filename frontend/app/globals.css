@@ -2102,3 +2102,25 @@ select,
     scroll-behavior: auto !important;
   }
 }
+
+.product-economics {
+  padding: 16px;
+  margin-top: 18px;
+  border: 1px solid #e0e8f6;
+  border-radius: 12px;
+  background: #f7faff;
+}
+.product-economic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.product-economics p {
+  margin-top: 10px;
+  color: #63718b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.product-economic-tags .badge {
+  white-space: normal;
+}

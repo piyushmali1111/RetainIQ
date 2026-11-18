@@ -17,7 +17,8 @@ from app.api.routes import auth
 async def lifespan(app: FastAPI):
     # Startup
     print("[*] ChurnGuardAI Backend starting up...")
-    Base.metadata.create_all(bind=engine)
+    from app.db.migrations import migrate_database
+    migrate_database(engine)
     seed_db()
     broadcaster.loop = asyncio.get_running_loop()
     start_scheduler()
@@ -93,3 +94,12 @@ def health_check():
 @app.get("/api/activity")
 def activity_feed():
     return list(broadcaster.events)
+
+
+@app.get("/api/products")
+def list_products():
+    from app.db.models import Product
+    from app.services.products import product_metadata
+    with SessionLocal() as db:
+        return [{**product_metadata(p), "sku": p.sku, "category": p.category}
+                for p in db.query(Product).order_by(Product.id).all()]

@@ -81,8 +81,11 @@ def seed_db(reseed: bool = False):
         print("[*] Reseed flag provided. Dropping all tables...")
         Base.metadata.drop_all(bind=engine)
 
-    Base.metadata.create_all(bind=engine)
+    from app.db.migrations import migrate_database
+    from app.db.catalog import seed_catalog
+    migrate_database(engine)
     db = SessionLocal()
+    seed_catalog(db)
 
     # Repair historical synthetic seed timestamps only, never incoming tickets.
     now_utc = datetime.utcnow()
@@ -411,6 +414,7 @@ def seed_db(reseed: bool = False):
     db.bulk_save_objects(offers)
     db.commit()
 
+    seed_catalog(db)
     db.close()
     print("[+] Database seeding completed successfully!")
 

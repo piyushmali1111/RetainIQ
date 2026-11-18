@@ -47,7 +47,14 @@ class PaginatedCustomersResponse(BaseModel):
     page: int
     page_size: int
 
-class TicketResponse(BaseModel):
+class ProductContext(BaseModel):
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    product_price: Optional[float] = None
+    product_margin: Optional[float] = None
+    product_ceiling: Optional[int] = None
+
+class TicketResponse(ProductContext):
     id: str
     customer_id: str
     customer_name: Optional[str] = None
@@ -60,7 +67,12 @@ class TicketResponse(BaseModel):
     agent_reply: Optional[str] = None
     created_at: str
 
-class OfferResponse(BaseModel):
+class OfferResponse(ProductContext):
+    effective_ceiling: int = 0
+    pricing_rationale: Optional[str] = None
+    ltv_factor: Optional[float] = None
+    calculated_discount: Optional[int] = None
+    guardrails_valid: bool = False
     id: str
     customer_id: str
     customer_name: Optional[str] = None
@@ -85,6 +97,7 @@ class CustomerDetailResponse(CustomerSummaryResponse):
     offers: List[OfferResponse]
 
 class TicketCreateRequest(BaseModel):
+    product_id: Optional[str] = None
     customer_id: str
     message: str = Field(min_length=3, max_length=5000, pattern=r"\S")
 

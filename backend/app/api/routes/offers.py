@@ -9,7 +9,9 @@ from app.services.settings_service import get_system_settings
 from app.websocket.agent_activity import broadcaster
 from pydantic import BaseModel
 import uuid
-import re
+
+from app.services.products import resolve_product, offer_economics, pricing_fields
+from app.services.pricing_engine import effective_ceiling, message_matches_discount
 
 router = APIRouter()
 
@@ -18,8 +20,9 @@ def _format_iso_utc(dt: Optional[datetime]) -> Optional[str]:
         return None
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def _serialize_offer(o: Offer, customer_name: str = None) -> dict:
+def _serialize_offer(o: Offer, customer_name: str = None, policy_cap: int = 25) -> dict:
     return {
+        **offer_economics(o, policy_cap),
         "id": o.id,
         "customer_id": o.customer_id,
         "customer_name": customer_name,
@@ -46,7 +49,8 @@ def get_all_offers(status: Optional[str] = Query(None), db: Session = Depends(ge
         query = query.filter(Offer.status.ilike(status.strip()))
     
     results = query.order_by(Offer.created_at.desc()).all()
-    return [_serialize_offer(o, cust_name) for o, cust_name in results]
+    cap = get_system_settings(db).max_discount_percent
+    return [_serialize_offer(o, cust_name, cap) for o, cust_name in results]
 
 @router.get("/pending", response_model=List[OfferResponse])
 def get_pending_offers(db: Session = Depends(get_db)):
@@ -57,18 +61,19 @@ def get_pending_offers(db: Session = Depends(get_db)):
         .order_by(Offer.created_at.desc())
         .all()
     )
-    return [_serialize_offer(o, cust_name) for o, cust_name in results]
+    cap = get_system_settings(db).max_discount_percent
+    return [_serialize_offer(o, cust_name, cap) for o, cust_name in results]
 
 class GenerateOfferRequest(BaseModel):
     customer_id: str
+    product_id: Optional[str] = None
 
 def validate_policy(message, discount, ceiling):
     if not 0 <= discount <= ceiling:
         raise HTTPException(422, f"Discount must be between 0% and the current {ceiling}% policy limit.")
     if len(message.strip()) < 10:
         raise HTTPException(422, "Please write a message of at least 10 characters.")
-    percentages = [float(v) for v in re.findall(r"(\d+(?:\.\d+)?)\s*%", message)]
-    if any(v != discount for v in percentages):
+    if not message_matches_discount(message, discount):
         raise HTTPException(422, "The discount in the message must match the offer discount.")
 
 @router.post("/generate", response_model=OfferResponse)
@@ -78,29 +83,33 @@ def generate_offer(payload: GenerateOfferRequest, db: Session = Depends(get_db))
     cust = db.get(Customer, payload.customer_id)
     if not cust:
         raise HTTPException(404, "Customer not found")
-    existing = db.query(Offer).filter(Offer.customer_id == cust.id, Offer.status.in_(["Pending", "Edited"])).first()
+    product = resolve_product(db, cust, payload.product_id)
+    if product is None:
+        raise HTTPException(409, "Select a product before generating a margin-verified offer.")
+    existing = db.query(Offer).filter(Offer.product_id == (product.id if product else None), Offer.customer_id == cust.id, Offer.status.in_(["Pending", "Edited"])).first()
     if existing:
-        return _serialize_offer(existing, cust.name)
+        return _serialize_offer(existing, cust.name, get_system_settings(db).max_discount_percent)
     policy = get_system_settings(db)
-    if cust.churn_risk_score < policy.risk_threshold:
+    fused_risk = cust.fused_score if cust.fused_score is not None else cust.churn_risk_score
+    if fused_risk < policy.risk_threshold:
         raise HTTPException(409, "This customer is below the risk threshold. No retention offer is needed.")
     detail = get_customer(cust.id, db)
     result = run_agent_pipeline(customer_id=cust.id, customer_name=cust.name,
-        churn_risk_score=cust.churn_risk_score, shap_factors=[f.model_dump() for f in detail.shap_factors],
+        churn_risk_score=fused_risk, shap_factors=[f.model_dump() for f in detail.shap_factors],
         total_spent=cust.total_spent, recency_days=detail.days_inactive, order_count=cust.order_count,
         complaint_count=cust.complaint_count, satisfaction_score=cust.satisfaction_score,
-        risk_threshold=policy.risk_threshold, max_discount_ceiling=policy.max_discount_percent)
+        risk_threshold=policy.risk_threshold, max_discount_ceiling=policy.max_discount_percent, product=product)
     draft = result.get("verified_offer")
     if not draft:
         raise HTTPException(422, "The generated offer did not pass policy verification.")
-    offer = Offer(id="OFFER-"+uuid.uuid4().hex[:8].upper(), customer_id=cust.id,
+    offer = Offer(**pricing_fields(draft), id="OFFER-"+uuid.uuid4().hex[:8].upper(), customer_id=cust.id,
         drafted_message=draft["drafted_message"], discount_percent=draft["discount_percent"],
         reasoning=draft["reasoning"], baseline_score=round(cust.churn_risk_score),
         fused_score=result["fused_score"], status="Pending", created_at=datetime.utcnow())
     db.add(offer)
     db.commit()
     db.refresh(offer)
-    return _serialize_offer(offer, cust.name)
+    return _serialize_offer(offer, cust.name, get_system_settings(db).max_discount_percent)
 
 @router.post("/{offer_id}/approve", response_model=OfferResponse)
 def approve_offer(offer_id: str, db: Session = Depends(get_db)):
@@ -109,14 +118,16 @@ def approve_offer(offer_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Offer not found")
     if offer.status not in ("Pending", "Edited"):
         raise HTTPException(409, "This offer has already been reviewed.")
-    validate_policy(offer.drafted_message, offer.discount_percent, get_system_settings(db).max_discount_percent)
+    if offer.product is None:
+        raise HTTPException(422, "This historical offer has no linked product. Generate a new offer with product context before approval.")
+    validate_policy(offer.drafted_message, offer.discount_percent, effective_ceiling(offer.product, get_system_settings(db).max_discount_percent))
     offer.status = "Approved"
     broadcaster.emit("Manager", f"Offer {offer.id} approved. Email delivery is not configured.", "success")
     offer.decided_at = datetime.utcnow()
     db.commit()
     db.refresh(offer)
     cust = db.query(Customer).filter(Customer.id == offer.customer_id).first()
-    return _serialize_offer(offer, cust.name if cust else None)
+    return _serialize_offer(offer, cust.name if cust else None, get_system_settings(db).max_discount_percent)
 
 @router.post("/{offer_id}/reject", response_model=OfferResponse)
 def reject_offer(offer_id: str, db: Session = Depends(get_db)):
@@ -130,7 +141,7 @@ def reject_offer(offer_id: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(offer)
     cust = db.query(Customer).filter(Customer.id == offer.customer_id).first()
-    return _serialize_offer(offer, cust.name if cust else None)
+    return _serialize_offer(offer, cust.name if cust else None, get_system_settings(db).max_discount_percent)
 
 @router.patch("/{offer_id}", response_model=OfferResponse)
 def patch_offer(offer_id: str, payload: OfferPatchRequest, db: Session = Depends(get_db)):
@@ -141,7 +152,7 @@ def patch_offer(offer_id: str, payload: OfferPatchRequest, db: Session = Depends
         raise HTTPException(409, "Reviewed offers cannot be edited.")
     validate_policy(payload.drafted_message if payload.drafted_message is not None else offer.drafted_message,
         payload.discount_percent if payload.discount_percent is not None else offer.discount_percent,
-        get_system_settings(db).max_discount_percent)
+        effective_ceiling(offer.product, get_system_settings(db).max_discount_percent))
     if payload.drafted_message is not None:
         offer.drafted_message = payload.drafted_message
     if payload.discount_percent is not None:
@@ -150,4 +161,4 @@ def patch_offer(offer_id: str, payload: OfferPatchRequest, db: Session = Depends
     db.commit()
     db.refresh(offer)
     cust = db.query(Customer).filter(Customer.id == offer.customer_id).first()
-    return _serialize_offer(offer, cust.name if cust else None)
+    return _serialize_offer(offer, cust.name if cust else None, get_system_settings(db).max_discount_percent)

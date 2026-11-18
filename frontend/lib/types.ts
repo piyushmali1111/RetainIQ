@@ -1,3 +1,14 @@
+export interface ProductContext {
+  product_id?: string | null;
+  product_name?: string | null;
+  product_price?: number | null;
+  product_margin?: number | null;
+  product_ceiling?: number | null;
+}
+export interface Product extends ProductContext {
+  sku: string;
+  category: string;
+}
 export interface CustomerSummary {
   id: string;
   name: string;
@@ -12,7 +23,7 @@ export interface CustomerSummary {
   total_spent: number;
   order_count: number;
 }
-export interface Ticket {
+export interface Ticket extends ProductContext {
   id: string;
   customer_id: string;
   customer_name: string;
@@ -25,7 +36,12 @@ export interface Ticket {
   agent_reply?: string;
   created_at: string;
 }
-export interface Offer {
+export interface Offer extends ProductContext {
+  effective_ceiling: number;
+  guardrails_valid: boolean;
+  pricing_rationale?: string | null;
+  calculated_discount?: number | null;
+  ltv_factor?: number | null;
   id: string;
   customer_id: string;
   customer_name: string;

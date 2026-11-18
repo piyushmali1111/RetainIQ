@@ -71,7 +71,9 @@ function Inbox() {
   const selected = filtered.find((o) => o.id === selectedId) ?? filtered[0];
   const pending =
     selected && (selected.status === "Pending" || selected.status === "Edited");
-  const verified = selected && selected.discount_percent <= ceiling;
+  const effectiveCeiling = Math.min(ceiling, selected?.effective_ceiling ?? 0);
+  const verified =
+    selected?.guardrails_valid && selected.discount_percent <= effectiveCeiling;
   async function decide(action: "approve" | "reject") {
     if (!selected) return;
     setBusy(true);
@@ -203,10 +205,53 @@ function Inbox() {
                     <Badge tone={verified ? "green" : "red"}>
                       <ShieldCheck size={12} />
                       {verified
-                        ? "Within discount policy"
-                        : "Exceeds current policy"}
+                        ? "Product guardrails passed"
+                        : "Needs policy review"}
                     </Badge>
                   </div>
+                </div>
+                <div
+                  className="product-economics"
+                  aria-label="Product economics"
+                >
+                  <div className="product-economic-tags">
+                    <Badge>
+                      Product: {selected.product_name ?? "Not linked"}
+                    </Badge>
+                    <Badge>
+                      Margin:{" "}
+                      {selected.product_margin != null
+                        ? `${selected.product_margin}%`
+                        : "Unknown"}
+                    </Badge>
+                    <Badge>
+                      Max Safe Ceiling:{" "}
+                      {selected.product_ceiling != null
+                        ? `${selected.product_ceiling}%`
+                        : "Unknown"}
+                    </Badge>
+                    <Badge tone={verified ? "green" : "red"}>
+                      Applied Discount: {selected.discount_percent}%
+                    </Badge>
+                  </div>
+                  <p>
+                    {selected.pricing_rationale ??
+                      "Historical draft: no deterministic calculation was recorded. Current product limits apply before approval."}
+                  </p>
+                  {selected.calculated_discount != null &&
+                    selected.calculated_discount !==
+                      selected.discount_percent && (
+                      <p>
+                        Manager adjustment: {selected.discount_percent}%.
+                        Original calculated discount:{" "}
+                        {selected.calculated_discount}%.
+                      </p>
+                    )}
+                  <p>
+                    Effective limit including your business policy:{" "}
+                    {effectiveCeiling}%. This offer applies only to the linked
+                    product.
+                  </p>
                 </div>
                 <div className="offer-columns">
                   <div>
@@ -244,7 +289,9 @@ function Inbox() {
                         <dd className="blue" style={{ fontSize: 27 }}>
                           {selected.discount_percent}%
                         </dd>
-                        <small className="muted">Max allowed: {ceiling}%</small>
+                        <small className="muted">
+                          Max allowed: {effectiveCeiling}%
+                        </small>
                       </div>
                       <div>
                         <dt>Status</dt>
@@ -339,17 +386,21 @@ function Inbox() {
             }}
           >
             <label className="field">
-              <span>Discount percentage · maximum {ceiling}%</span>
+              <span>Discount percentage · maximum {effectiveCeiling}%</span>
               <input
                 type="number"
                 min={0}
-                max={ceiling}
+                max={effectiveCeiling}
                 required
                 value={discount}
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   setDiscount(v);
-                  setDraft(draft.replace(/\d+(?:\.\d+)?\s*%/g, v + "%"));
+                  setDraft(
+                    draft
+                      .replace(/\d+(?:\.\d+)?\s*%/g, v + "%")
+                      .replace(/RETAIN\d+-/g, `RETAIN${v}-`),
+                  );
                 }}
               />
             </label>

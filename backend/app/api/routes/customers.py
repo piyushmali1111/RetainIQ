@@ -1,3 +1,4 @@
+from app.services.products import product_metadata, offer_economics
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -138,6 +139,7 @@ def get_customer(customer_id: str, db: Session = Depends(get_db)):
     tickets = db.query(Ticket).filter(Ticket.customer_id == customer_id).order_by(desc(Ticket.created_at)).all()
     ticket_history = [
         {
+            **product_metadata(t.product),
             "id": t.id,
             "customer_id": t.customer_id,
             "customer_name": cust.name,
@@ -156,6 +158,7 @@ def get_customer(customer_id: str, db: Session = Depends(get_db)):
     offers = db.query(Offer).filter(Offer.customer_id == customer_id).order_by(desc(Offer.created_at)).all()
     offer_history = [
         {
+            **offer_economics(o, settings.max_discount_percent),
             "id": o.id,
             "customer_id": o.customer_id,
             "customer_name": cust.name,

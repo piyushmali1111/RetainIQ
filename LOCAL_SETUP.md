@@ -67,3 +67,16 @@ The integration suite copies the bundled database into ignored test-ui-integrati
 ## Artwork
 
 frontend/public/images/customer-hero.png was created with the built-in ImageGen tool. Prompt: a cheerful young adult Indian woman with long dark brown hair in a mustard knit sweater, looking at a black smartphone; warm studio light, waist-up square composition, pale cream/light-blue abstract backdrop; no text, logos or UI. The remaining decorative artwork uses local CSS and Lucide icons.
+
+
+## Product-aware discount policy
+
+Startup runs an additive, repeatable SQLite migration. It creates the catalog and adds nullable product links and pricing audit fields without deleting customer, ticket, offer, or decision records. The six sample products and default associations are demo data, not inferred purchase history. Existing catalog values are never overwritten. Historical offers retain their original amounts and decisions; pending offers above the current product cap must be edited before approval. Unlinked historical offers must be replaced by a new offer with product context.
+
+Each product ceiling is the whole-number floor of min(25, half its unrounded gross margin percentage), with a lower bound of zero. A stricter manager discount setting also applies. There is no 5% minimum that can override a margin ceiling. Missing product context never produces a positive discount. Catalog prices and costs must use the same currency; LTV thresholds (400 and 1000) assume customer spending uses that currency too.
+
+Python calculates discounts from fused risk and lifetime spend. Below the configured risk threshold the discount is zero. At or above the threshold, risk scales the allocation from min(5, ceiling) to the effective ceiling, weighted by the LTV tier (0.70, 0.85, or 1.00). Gemini writes only the apology; the application appends the exact product-scoped discount and RETAIN coupon reference. The verifier recomputes pricing and repairs inconsistent text. Coupons are draft references: this repository has no checkout redemption integration.
+
+Ticket simulation accepts an explicit catalog product. Otherwise it uses the demo customer's associated product. Manual generation and scheduled scans use the same pricing engine. Editing and approval recheck live catalog margins and current business limits. The Approval Inbox shows product economics, the original deterministic rationale, and any manager adjustment.
+
+Pricing tests include electronics/apparel contrasts, threshold and LTV boundaries, very low/negative margins, malicious model text, live margin changes before approval, API persistence, and migration idempotence. Live Gemini calls remain untested; model text is mocked in verification.

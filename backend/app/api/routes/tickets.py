@@ -12,6 +12,8 @@ from app.agents.orchestrator import run_agent_pipeline
 from app.services.settings_service import get_system_settings
 from app.services.preferences import get_preferences
 
+from app.services.products import resolve_product, product_metadata, offer_economics, pricing_fields
+
 router = APIRouter()
 
 def _format_iso_utc(dt: Optional[datetime]) -> Optional[str]:
@@ -39,6 +41,7 @@ def list_tickets(limit: int = Query(100, ge=1, le=10000), db: Session = Depends(
     res = []
     for t, cust_name in results:
         res.append({
+            **product_metadata(t.product),
             "id": t.id,
             "customer_id": t.customer_id,
             "customer_name": cust_name,
@@ -59,6 +62,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
     if not cust:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    product = resolve_product(db, cust, payload.product_id)
     prefs = get_preferences(db)
     if not prefs.ticket_monitoring:
         raise HTTPException(409, "Ticket monitoring is paused. Enable it in Settings before simulating a ticket.")
@@ -82,7 +86,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
         "ComplaintCount": cust.complaint_count + 1,
         "SatisfactionScore": cust.satisfaction_score,
     }
-    baseline_score = cust.baseline_score or cust.churn_risk_score
+    baseline_score = cust.baseline_score if cust.baseline_score is not None else cust.churn_risk_score
     shap_data = explain_churn_risk(feature_dict, baseline_score)
 
     # 3. Run multi-agent pipeline
@@ -102,12 +106,14 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
         satisfaction_score=cust.satisfaction_score,
         risk_threshold=threshold,
         max_discount_ceiling=max_discount,
+        product=product,
     )
 
     support_reply = result.get("support_reply") or f"Hi {cust.name}, we've flagged your case to our team and will follow up shortly with next steps."
 
     # 4. Save ticket
     ticket = Ticket(
+        product_id=product.id if product else None,
         id=ticket_id,
         customer_id=cust.id,
         message=payload.message,
@@ -133,6 +139,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
     if result.get("verified_offer") and prefs.automated_offers:
         offer_draft = result["verified_offer"]
         new_offer = Offer(
+            **pricing_fields(offer_draft),
             id=offer_id,
             customer_id=cust.id,
             ticket_id=ticket_id,
@@ -149,6 +156,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(new_offer)
         created_offer = {
+            **offer_economics(new_offer, max_discount),
             "id": new_offer.id,
             "customer_id": new_offer.customer_id,
             "customer_name": cust.name,
@@ -165,6 +173,7 @@ def create_ticket(payload: TicketCreateRequest, db: Session = Depends(get_db)):
 
     return {
         "ticket": {
+            **product_metadata(ticket.product),
             "id": ticket.id,
             "customer_id": ticket.customer_id,
             "customer_name": cust.name,

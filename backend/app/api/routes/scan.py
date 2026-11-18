@@ -16,6 +16,8 @@ from app.services.preferences import get_preferences
 from app.services.metrics import get_total_customers, get_high_risk_count
 from app.websocket.agent_activity import broadcaster
 
+from app.services.products import pricing_fields
+
 router = APIRouter()
 
 
@@ -36,7 +38,7 @@ def run_proactive_scan(db: Session = Depends(get_db)):
 
     customers = db.query(Customer).all()
     if not customers:
-        return ScanRunResponse(scanned_customers=0, high_risk_flagged=0, offers_drafted=0)
+        return ScanRunResponse(scanned_customers=0, high_risk_flagged=0, new_offers_count=0, scan_timestamp=datetime.utcnow().isoformat())
 
     # 1. Batch vector scoring across all customers using FEATURE_COLS
     records = []
@@ -129,11 +131,13 @@ def run_proactive_scan(db: Session = Depends(get_db)):
             satisfaction_score=cust.satisfaction_score,
             risk_threshold=threshold,
             max_discount_ceiling=max_discount,
+            product=cust.product,
         )
 
         if result.get("verified_offer"):
             offer_draft = result["verified_offer"]
             new_offer = Offer(
+                **pricing_fields(offer_draft),
                 id=offer_id,
                 customer_id=cust.id,
                 ticket_id=None,

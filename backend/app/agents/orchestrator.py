@@ -10,6 +10,12 @@ from app.websocket.agent_activity import broadcaster
 from app.config import settings
 
 class AgentPipelineGraphState(TypedDict):
+    product_id: Optional[str]
+    product_name: Optional[str]
+    product_price: Optional[float]
+    product_margin: Optional[float]
+    product_ceiling: Optional[int]
+    product_cost_price: Optional[float]
     run_id: str
     chip: str
     ticket_id: Optional[str]
@@ -35,6 +41,12 @@ class AgentPipelineGraphState(TypedDict):
     max_discount_ceiling: int
     drafted_offer: Optional[dict]
     verified_offer: Optional[dict]
+
+def product_from_state(state):
+    if not state.get("product_id"):
+        return None
+    from app.db.models import Product
+    return Product(id=state["product_id"], name=state["product_name"], price=state["product_price"], cost_price=state["product_cost_price"])
 
 def emit_event(agent: str, message: str, type_label: str, chip: str, run_id: str):
     broadcaster.emit(agent, message, type_label, chip, run_id)
@@ -132,6 +144,8 @@ def retention_agent_node(state: AgentPipelineGraphState) -> AgentPipelineGraphSt
         complaint_count=complaints,
         satisfaction_score=sat,
         urgency_score=urgency,
+        product=product_from_state(state),
+        risk_threshold=state["risk_threshold"],
         max_discount=max_disc
     )
     state["drafted_offer"] = draft
@@ -156,14 +170,14 @@ def verifier_agent_node(state: AgentPipelineGraphState) -> AgentPipelineGraphSta
     offer_id = state.get("offer_id") or "OFFER-NEW"
 
     if draft:
-        v_res = run_verifier_agent(draft, max_discount_ceiling=max_ceiling)
+        v_res = run_verifier_agent(draft, max_discount_ceiling=max_ceiling, product=product_from_state(state))
         state["verified_offer"] = v_res["verified_offer"]
 
         # Section 9 exact format:
         # "Offer #OFFER-105 discount 20% is within ceiling 25%. Queued for human approval."
         if v_res["is_valid"]:
             disc = draft.get("discount_percent", max_ceiling)
-            msg = f"Offer #{offer_id} discount {disc}% is within ceiling {max_ceiling}%. Queued for human approval."
+            msg = f"Offer #{offer_id}: {v_res['reason']} Queued for human approval."
             evt_type = "success"
         else:
             msg = f"Offer #{offer_id} rejected by guardrail: {v_res['reason']}"
@@ -180,7 +194,7 @@ def verifier_agent_node(state: AgentPipelineGraphState) -> AgentPipelineGraphSta
     return state
 
 def should_draft_offer(state: AgentPipelineGraphState) -> str:
-    if state.get("is_high_risk"):
+    if state.get("is_high_risk") and state.get("product_id"):
         return "retention_agent"
     return END
 
@@ -215,11 +229,15 @@ def run_agent_pipeline(
     satisfaction_score: float = 5.0,
     risk_threshold: Optional[int] = None,
     max_discount_ceiling: Optional[int] = None,
+    product=None,
 ) -> dict:
     run_id = f"RUN-{uuid.uuid4().hex[:6].upper()}"
     chip = f"#{ticket_id}" if ticket_id else "Proactive Scan"
 
+    from app.services.products import product_metadata
     initial_state: AgentPipelineGraphState = {
+        **product_metadata(product),
+        "product_cost_price": product.cost_price if product else None,
         "run_id": run_id,
         "chip": chip,
         "ticket_id": ticket_id,

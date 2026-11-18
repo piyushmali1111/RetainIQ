@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import type { Ticket, CustomerSummary } from "../../lib/types";
+import type { Ticket, CustomerSummary, Product } from "../../lib/types";
 import {
   PageHeader,
   Notice,
@@ -34,6 +34,8 @@ export default function Tickets() {
     [selected, setSelected] = useState<Ticket | null>(null),
     [create, setCreate] = useState(false),
     [customers, setCustomers] = useState<CustomerSummary[]>([]),
+    [products, setProducts] = useState<Product[]>([]),
+    [productId, setProductId] = useState(""),
     [customerId, setCustomerId] = useState(""),
     [customerQuery, setCustomerQuery] = useState(""),
     [message, setMessage] = useState(""),
@@ -71,6 +73,13 @@ export default function Tickets() {
       c.abort();
     };
   }, [create, customerQuery]);
+  useEffect(() => {
+    if (create)
+      api
+        .getProducts()
+        .then(setProducts)
+        .catch((e) => setFormError(e.message));
+  }, [create]);
   const filtered = items.filter(
     (t) =>
       (filter === "All Tickets" || t.sentiment_label === filter) &&
@@ -277,6 +286,11 @@ export default function Tickets() {
             </div>
             {selected.message}
           </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+            Product: {selected.product_name ?? "Not linked"}
+            {selected.product_ceiling != null &&
+              ` - Margin ${selected.product_margin}% - Max safe ceiling ${selected.product_ceiling}%`}
+          </p>
           {selected.agent_reply && (
             <div className="conversation-bubble reply">
               <p
@@ -342,7 +356,11 @@ export default function Tickets() {
               setSubmitting(true);
               setFormError("");
               try {
-                const r = await api.createTicket(customerId, message);
+                const r = await api.createTicket(
+                  customerId,
+                  message,
+                  productId || undefined,
+                );
                 setCreate(false);
                 setMessage("");
                 await load();
@@ -374,6 +392,21 @@ export default function Tickets() {
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} · {c.id} · {c.churn_status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Product</span>
+              <select
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+              >
+                <option value="">Use customer's associated product</option>
+                {products.map((p) => (
+                  <option key={p.product_id} value={p.product_id ?? ""}>
+                    {p.product_name} - {p.product_margin}% margin - ceiling{" "}
+                    {p.product_ceiling}%
                   </option>
                 ))}
               </select>

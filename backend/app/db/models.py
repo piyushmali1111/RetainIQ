@@ -23,8 +23,28 @@ class SystemSetting(Base):
     max_discount_percent = Column(Integer, default=25, nullable=False)
     scan_frequency = Column(String, default="daily", nullable=False)
 
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(String, primary_key=True, index=True)
+    sku = Column(String(50), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    category = Column(String(50), nullable=False)
+    price = Column(Float, nullable=False)
+    cost_price = Column(Float, nullable=False)
+
+    @property
+    def gross_margin_percent(self):
+        return round((self.price - self.cost_price) / self.price * 100, 1) if self.price > 0 else 0.0
+
+    @property
+    def max_allowed_discount(self):
+        from app.services.pricing_engine import margin_ceiling
+        return margin_ceiling(self.price, self.cost_price)
+
 class Customer(Base):
     __tablename__ = "customers"
+    product_id = Column(String, ForeignKey("products.id"), nullable=True, index=True)
+    product = relationship("Product")
 
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -51,6 +71,8 @@ class Customer(Base):
 
 class Ticket(Base):
     __tablename__ = "tickets"
+    product_id = Column(String, ForeignKey("products.id"), nullable=True, index=True)
+    product = relationship("Product")
 
     id = Column(String, primary_key=True, index=True)
     customer_id = Column(String, ForeignKey("customers.id"), nullable=False, index=True)
@@ -68,6 +90,8 @@ class Ticket(Base):
 
 class Offer(Base):
     __tablename__ = "offers"
+    product_id = Column(String, ForeignKey("products.id"), nullable=True, index=True)
+    product = relationship("Product")
 
     id = Column(String, primary_key=True, index=True)
     customer_id = Column(String, ForeignKey("customers.id"), nullable=False, index=True)
@@ -81,6 +105,9 @@ class Offer(Base):
     status = Column(String, default="Pending", index=True) # Pending, Approved, Rejected, Edited
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     decided_at = Column(DateTime, nullable=True)
+    pricing_rationale = Column(Text, nullable=True)
+    ltv_factor = Column(Float, nullable=True)
+    calculated_discount = Column(Integer, nullable=True)
 
     customer = relationship("Customer", back_populates="offers")
     ticket = relationship("Ticket", back_populates="offers")
